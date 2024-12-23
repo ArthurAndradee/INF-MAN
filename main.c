@@ -5,12 +5,14 @@
 
 // Estrutura pro jogador
 typedef struct Player {
-    Vector2 position; // Coordenadas do jogador (x, y)
-    Vector2 velocity; // Velocidade de movimento (x, y)
-    Rectangle rect;   // Retângulo para detecção de colisão
-    bool isGrounded;  // Determina se o jogador está no chão
-    bool facingRight; // Direção do jogador
+    Vector2 position;   // Coordenadas do jogador (x, y)
+    Vector2 velocity;   // Velocidade de movimento (x, y)
+    Rectangle rect;     // Retângulo para detecção de colisão
+    bool isGrounded;    // Determina se o jogador está no chão
+    bool facingRight;   // Direção do jogador
     bool isShooting;
+    int health;         // Pontos de vida do jogador
+    int points;
 } Player;
 
 // Estrutura para as plataformas
@@ -38,7 +40,9 @@ int main(void) {
         {100, 300, 50, 50},
         false,
         true, // Inicia olhando para a direita
-        false
+        false,
+        3,
+        0
     };
 
     // Variaveis das propriedades do projetil
@@ -49,7 +53,7 @@ int main(void) {
     const float gravity = 500.0f;
     const float jumpForce = -300.0f;
     const float moveSpeed = 200.0f;
-    const float projectileSpeed = 400.0f;
+    const float projectileSpeed = 600.0f;
 
     // Inicialização das plataformas
     Platform platforms[PLATFORM_COUNT] = {
@@ -238,6 +242,15 @@ int main(void) {
         }
 
         EndMode2D();
+
+        // Exibe a saúde do jogador
+        char templateText[20];
+        sprintf(templateText, "Health: %d", player.health);
+        DrawText(templateText, 10, 40, 20, BLACK);
+
+        sprintf(templateText, "Points: %d", player.points);
+        DrawText(templateText, 10, 60, 20, BLACK);
+
 
         DrawText("INF-MAN", 10, 10, 20, BLACK);
         EndDrawing();
