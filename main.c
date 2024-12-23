@@ -7,9 +7,10 @@ typedef struct Player {
     Vector2 velocity; // Velocidade de movimento (x, y)
     Rectangle rect;   // Retângulo para detecção de colisão
     bool isGrounded;  // Determina se o jogador está no chão
+    bool facingRight; // Direção do jogador
 } Player;
 
-// Estrutura paraa as plataformas
+// Estrutura para as plataformas
 typedef struct Platform {
     Vector2 position; // Coordenadas da plataforma (x, y)
     Rectangle rect;   // Retângulo para detecção de colisão
@@ -24,10 +25,11 @@ int main(void) {
 
     // Inicialização do jogador
     Player player = {
-        {100, 300}, 
-        {0, 0}, 
-        {100, 300, 50, 50}, 
-        false
+        {100, 300},
+        {0, 0},
+        {100, 300, 50, 50},
+        false,
+        true // Inicia olhando para a direita
     };
 
     const float gravity = 500.0f;
@@ -37,7 +39,7 @@ int main(void) {
     // Inicialização das plataformas
     Platform platforms[PLATFORM_COUNT] = {
         {{0, 400}, {0, 400, 800, 50}},       // Chão
-        {{200, 300}, {200, 300, 100, 20}},  // Plataformas
+        {{200, 300}, {200, 300, 100, 20}},  // Plataformas (e tbm todas abaixo)
         {{400, 250}, {400, 250, 100, 20}},
         {{600, 200}, {600, 200, 100, 20}},
         {{100, 150}, {100, 150, 100, 20}}
@@ -50,6 +52,18 @@ int main(void) {
     camera.zoom = 1.0f;
     camera.rotation = 0.0f;
 
+    Texture2D infmanTex = LoadTexture("player-sheet.png");
+
+    int frameWidth = infmanTex.width / 12;
+    Rectangle frameRec = {0.0f, 0.0f, (float)frameWidth, (float)infmanTex.height};
+
+    // Variaveis pra controle da textura que apresenta o estado do jogador
+    Vector2 textureOrigin = {0, 0};
+    unsigned currentFrame = 0;
+    float frameTimer = 0.0f;
+
+    const float frameSpeed = 0.15f; // Velocidade de animação
+
     SetTargetFPS(60);
 
     while (!WindowShouldClose()) {
@@ -59,9 +73,15 @@ int main(void) {
         player.velocity.y += gravity * dt;
 
         // Controle do jogador
-        if (IsKeyDown(KEY_RIGHT)) player.velocity.x = moveSpeed;
-        else if (IsKeyDown(KEY_LEFT)) player.velocity.x = -moveSpeed;
-        else player.velocity.x = 0;
+        if (IsKeyDown(KEY_RIGHT)) {
+            player.velocity.x = moveSpeed;
+            player.facingRight = true;
+        } else if (IsKeyDown(KEY_LEFT)) {
+            player.velocity.x = -moveSpeed;
+            player.facingRight = false;
+        } else {
+            player.velocity.x = 0;
+        }
 
         // Pulo
         if (IsKeyPressed(KEY_SPACE) && player.isGrounded) {
@@ -73,11 +93,11 @@ int main(void) {
         player.position.x += player.velocity.x * dt;
         player.position.y += player.velocity.y * dt;
 
-        // Atualiza o retângulo do jogador pra colisão
+        // Atualiza o jogador pra colisão
         player.rect.x = player.position.x;
         player.rect.y = player.position.y;
 
-        // Lida com as colisões com plataformas
+        // Colisões com plataformas
         player.isGrounded = false;
         for (int i = 0; i < PLATFORM_COUNT; i++) {
             platforms[i].rect.x = platforms[i].position.x;
@@ -105,21 +125,48 @@ int main(void) {
             }
         }
 
-        // Teleporta o jogador pro início quando cai pra fora da tela
+        // Teleporta o jogador pro início quando cai pra fora do mapa
         if (player.position.y > screenHeight) {
             player.position.y = 300;
+            player.position.x = 30;
             player.velocity.y = 0;
+            player.velocity.x = 0;
         }
 
-        // Atualizar o alvo da câmera
+        // Atualiza o centro da câmera
         camera.target = (Vector2){player.position.x + player.rect.width / 2, player.position.y + player.rect.height / 2};
+
+        // Animação do jogador
+        frameTimer += dt;
+        if (frameTimer >= frameSpeed) {
+            frameTimer = 0.0f;
+
+            if (!player.isGrounded) {
+                currentFrame = 5; // Pulo
+            } else if (player.velocity.x != 0) {
+                currentFrame = (currentFrame < 1 || currentFrame > 3) ? 2 : currentFrame + 1; // Movendo
+            } else {
+                currentFrame = 0; // Parado
+            }
+        }
+
+        // Define o quadro atual e ajusta a direção
+        frameRec.x = frameWidth * currentFrame;
+        frameRec.width = player.facingRight ? -frameWidth : frameWidth;
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
         BeginMode2D(camera);
 
-        DrawRectangleRec(player.rect, BLUE);
+        DrawTexturePro(
+            infmanTex, // Textura fonte
+            frameRec,  // Retângulo da textura (fonte)
+            player.rect, // Retângulo de destino (para o jogador)
+            textureOrigin, // Origem
+            0.0f, // Rotação
+            WHITE // Cor
+        );
 
         for (int i = 0; i < PLATFORM_COUNT; i++) {
             DrawRectangleRec(platforms[i].rect, DARKGRAY);
