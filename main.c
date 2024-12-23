@@ -1,5 +1,7 @@
 #include "raylib.h"
 #include <stdio.h>
+#define MAX_PROJECTILES 10
+#define PLATFORM_COUNT 5
 
 // Estrutura pro jogador
 typedef struct Player {
@@ -8,6 +10,7 @@ typedef struct Player {
     Rectangle rect;   // Retângulo para detecção de colisão
     bool isGrounded;  // Determina se o jogador está no chão
     bool facingRight; // Direção do jogador
+    bool isShooting;
 } Player;
 
 // Estrutura para as plataformas
@@ -16,11 +19,16 @@ typedef struct Platform {
     Rectangle rect;   // Retângulo para detecção de colisão
 } Platform;
 
-#define PLATFORM_COUNT 5
+// Estrutura pro projetil
+typedef struct Projectile {
+    Rectangle rect;  // Propriedades de posição e tamanho
+    Vector2 speed;   // Velocidade do projétil
+    bool active;     // Indica se o projétil está ativo
+} Projectile;
 
 int main(void) {
-    const int screenWidth = 800;
-    const int screenHeight = 450;
+    const int screenWidth = 1200;
+    const int screenHeight = 600;
     InitWindow(screenWidth, screenHeight, "INF-MAN");
 
     // Inicialização do jogador
@@ -29,12 +37,19 @@ int main(void) {
         {0, 0},
         {100, 300, 50, 50},
         false,
-        true // Inicia olhando para a direita
+        true, // Inicia olhando para a direita
+        false
     };
 
+    // Variaveis das propriedades do projetil
+    float projectileWidth = 20.0f;  // Largura do disparo
+    float projectileHeight = 10.0f; // Altura do disparo
+
+    // Variaveis de controle do mundo
     const float gravity = 500.0f;
     const float jumpForce = -300.0f;
     const float moveSpeed = 200.0f;
+    const float projectileSpeed = 400.0f;
 
     // Inicialização das plataformas
     Platform platforms[PLATFORM_COUNT] = {
@@ -52,8 +67,10 @@ int main(void) {
     camera.zoom = 1.0f;
     camera.rotation = 0.0f;
 
+    // Configuração da textura do jogador
     Texture2D infmanTex = LoadTexture("player-sheet.png");
 
+    // Configuração do frame do jogador
     int frameWidth = infmanTex.width / 12;
     Rectangle frameRec = {0.0f, 0.0f, (float)frameWidth, (float)infmanTex.height};
 
@@ -61,8 +78,13 @@ int main(void) {
     Vector2 textureOrigin = {0, 0};
     unsigned currentFrame = 0;
     float frameTimer = 0.0f;
-
     const float frameSpeed = 0.15f; // Velocidade de animação
+
+    // Inicialização dos projeteis
+    Projectile projectiles[MAX_PROJECTILES] = {0};
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        projectiles[i].active = false;
+    }
 
     SetTargetFPS(60);
 
@@ -88,6 +110,25 @@ int main(void) {
             player.velocity.y = jumpForce;
             player.isGrounded = false;
         }
+
+        // Disparo do projetil
+        if (IsKeyPressed(KEY_Z)) {
+            for (int i = 0; i < MAX_PROJECTILES; i++) {
+                if (!projectiles[i].active) {
+                    projectiles[i].rect = (Rectangle){
+                        player.position.x + (player.facingRight ? player.rect.width : -projectileWidth),
+                        player.position.y + player.rect.height / 2 - projectileHeight / 2,
+                        projectileWidth,
+                        projectileHeight
+                    };
+                    projectiles[i].speed = (Vector2){player.facingRight ? projectileSpeed : -projectileSpeed, 0};
+                    projectiles[i].active = true;
+                    break;
+                }
+            }
+        }
+        // Animação do jogador disparando
+        player.isShooting = IsKeyDown(KEY_Z);
 
         // Atualiza a posição do jogador
         player.position.x += player.velocity.x * dt;
@@ -125,6 +166,19 @@ int main(void) {
             }
         }
 
+        // Atualiza projéteis
+        for (int i = 0; i < MAX_PROJECTILES; i++) {
+            if (projectiles[i].active) {
+                projectiles[i].rect.x += projectiles[i].speed.x * dt;
+                projectiles[i].rect.y += projectiles[i].speed.y * dt;
+
+                // Desativa projétil se sair da tela
+                if (projectiles[i].rect.x < 0 || projectiles[i].rect.x > screenWidth) {
+                    projectiles[i].active = false;
+                }
+            }
+        }
+
         // Teleporta o jogador pro início quando cai pra fora do mapa
         if (player.position.y > screenHeight) {
             player.position.y = 300;
@@ -142,11 +196,16 @@ int main(void) {
             frameTimer = 0.0f;
 
             if (!player.isGrounded) {
-                currentFrame = 5; // Pulo
+                currentFrame = player.isShooting ? 10 : 5; // Pulando (atirando ou não)
             } else if (player.velocity.x != 0) {
-                currentFrame = (currentFrame < 1 || currentFrame > 3) ? 2 : currentFrame + 1; // Movendo
+                // Movendo
+                if (player.isShooting) {
+                    currentFrame = (currentFrame < 6 || currentFrame > 8) ? 7 : currentFrame + 1;
+                } else {
+                    currentFrame = (currentFrame < 1 || currentFrame > 3) ? 2 : currentFrame + 1;  // 1, 2, 3 (Ciclo)
+                }
             } else {
-                currentFrame = 0; // Parado
+                currentFrame = player.isShooting ? 7 : 0; // Parado (atirando ou não)
             }
         }
 
@@ -170,6 +229,12 @@ int main(void) {
 
         for (int i = 0; i < PLATFORM_COUNT; i++) {
             DrawRectangleRec(platforms[i].rect, DARKGRAY);
+        }
+
+        for (int i = 0; i < MAX_PROJECTILES; i++) {
+            if (projectiles[i].active) {
+                DrawRectangleRec(projectiles[i].rect, YELLOW);
+            }
         }
 
         EndMode2D();
