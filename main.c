@@ -1,36 +1,48 @@
 #include "raylib.h"
 #include <stdio.h>
+#include <stdlib.h>
 #define MAX_PROJECTILES 10
 #define PLATFORM_COUNT 5
-
-// Estrutura pro jogador
+#define ENEMIES_COUNT 5
+//Jogador
 typedef struct Player {
-    Vector2 position;   // Coordenadas do jogador (x, y)
-    Vector2 velocity;   // Velocidade de movimento (x, y)
+    Vector2 position;   // Coordenadas (x, y)
+    Vector2 velocity;   // Velocidade (x, y)
     Rectangle rect;     // Retângulo para detecção de colisão
     bool isGrounded;    // Determina se o jogador está no chão
     bool facingRight;   // Direção do jogador
-    bool isShooting;
+    bool isShooting;    // Determina se o jogador está atirando
     int health;         // Pontos de vida do jogador
     int points;
 } Player;
 
-// Estrutura para as plataformas
-typedef struct Platform {
-    Vector2 position; // Coordenadas da plataforma (x, y)
-    Rectangle rect;   // Retângulo para detecção de colisão
-} Platform;
-
-// Estrutura pro projetil
+//Projeteis
 typedef struct Projectile {
     Rectangle rect;  // Propriedades de posição e tamanho
     Vector2 speed;   // Velocidade do projétil
     bool active;     // Indica se o projétil está ativo
 } Projectile;
 
+//Plataformas
+typedef struct Platform {
+    Vector2 position; // Coordenadas da plataforma (x, y)
+    Rectangle rect;   // Retângulo para detecção de colisão
+} Platform;
+
+//Inimigos
+typedef struct Enemy {
+    Vector2 position;   // Position of the enemy (x, y)
+    Vector2 velocity;   // Speed of the enemy (x, y)
+    Rectangle rect;     // Rectangle for collision detection
+    int health;         // Health of the enemy
+} Enemy;
+
 int main(void) {
     const int screenWidth = 1200;
     const int screenHeight = 600;
+
+    int numEnemies = 5;
+
     InitWindow(screenWidth, screenHeight, "INF-MAN");
 
     // Inicialização do jogador
@@ -62,6 +74,14 @@ int main(void) {
         {{400, 250}, {400, 250, 100, 20}},
         {{600, 200}, {600, 200, 100, 20}},
         {{100, 150}, {100, 150, 100, 20}}
+    };
+
+    Enemy enemies[ENEMIES_COUNT] = {
+        {{300, 300}, {100, 0}, {300, 300, 50, 50}, 100},  // Enemy type 1
+        {{600, 400}, {0, 100}, {600, 400, 50, 50}, 150},  // Enemy type 2
+        {{900, 500}, {-100, 0}, {900, 500, 50, 50}, 200}, // Enemy type 3
+        {{200, 150}, {0, 50}, {200, 150, 50, 50}, 50},    // Enemy type 4
+        {{800, 100}, {100, 100}, {800, 100, 50, 50}, 120} // Enemy type 5
     };
 
     // Configuração da câmera
@@ -177,9 +197,35 @@ int main(void) {
                 projectiles[i].rect.y += projectiles[i].speed.y * dt;
 
                 // Desativa projétil se sair da tela
-                if (projectiles[i].rect.x < 0 || projectiles[i].rect.x > screenWidth) {
+                if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > screenWidth) {
                     projectiles[i].active = false;
                 }
+
+                 for (int j = 0; j < ENEMIES_COUNT; j++) {
+                    if (enemies[j].health > 0 && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
+                        // Reduce enemy health
+                        enemies[j].health -= 10;
+
+                        // Deactivate projectile
+                        projectiles[i].active = false;
+
+                        // Optional: Log or provide feedback for the hit
+                        printf("Hit enemy %d! Remaining health: %d\n", j, enemies[j].health);
+                    }
+                }
+            }
+        }
+
+        //Atualiza inimigos
+        for (int i = 0; i < ENEMIES_COUNT; i++) {
+            if (enemies[i].health > 0) {  // Process only active enemies
+                // Update the enemy's position based on speed
+                enemies[i].position.x += enemies[i].velocity.x * dt;
+                enemies[i].position.y += enemies[i].velocity.y * dt;
+
+                // Update the enemy's rectangle for collision detection
+                enemies[i].rect.x = enemies[i].position.x;
+                enemies[i].rect.y = enemies[i].position.y;
             }
         }
 
@@ -241,16 +287,19 @@ int main(void) {
             }
         }
 
+        for (int i = 0; i < ENEMIES_COUNT; i++) {
+            if (enemies[i].health > 0) {
+                DrawRectangleRec(enemies[i].rect, DARKGRAY);
+                DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 10, 10, RED);
+            }
+        }
+
+
         EndMode2D();
 
         // Exibe a saúde do jogador
-        char templateText[20];
-        sprintf(templateText, "Health: %d", player.health);
-        DrawText(templateText, 10, 40, 20, BLACK);
-
-        sprintf(templateText, "Points: %d", player.points);
-        DrawText(templateText, 10, 60, 20, BLACK);
-
+        DrawText(TextFormat("Health: %d", player.health), 10, 40, 20, BLACK);
+        DrawText(TextFormat("Points: %d", player.points), 10, 70, 20, BLACK);
 
         DrawText("INF-MAN", 10, 10, 20, BLACK);
         EndDrawing();
