@@ -1,65 +1,196 @@
 #include "raylib.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
 #define MAX_PROJECTILES 10
-#define PLATFORM_COUNT 5
-#define ENEMIES_COUNT 5
-//Jogador
+#define BLOCK_SIZE 16
+#define MAX_WIDTH 1000
+#define MAX_HEIGHT 100
+#define SCREEN_WIDTH 1200
+#define SCREEN_HEIGHT 600
+
 typedef struct Player {
     Vector2 position;   // Coordenadas (x, y)
     Vector2 velocity;   // Velocidade (x, y)
-    Rectangle rect;     // Retângulo para detecção de colisão
-    bool isGrounded;    // Determina se o jogador está no chão
-    bool facingRight;   // Direção do jogador
-    bool isShooting;    // Determina se o jogador está atirando
-    int health;         // Pontos de vida do jogador
+    Rectangle rect;     // Retangulo pra colisao
+    bool isGrounded;    // Determina se está no chao
+    bool facingRight;   // Determina direcao que está encarando
+    bool isShooting;
+    int health;
     int points;
+
 } Player;
 
-//Projeteis
+typedef struct Enemy {
+    Vector2 position;   // coordenadas (x, y)
+    Vector2 velocity;   // velocidade (x, y)
+    Rectangle rect;     // Retangulo pra colisao
+    Vector2 minPosition; // posicao minima (x, y)
+    Vector2 maxPosition; // posicao maxima (x, y)
+    int health;         // pontos de vida
+    bool active;        // flag para determinar se o inimigo está ativo
+} Enemy;
+
 typedef struct Projectile {
     Rectangle rect;  // Propriedades de posição e tamanho
     Vector2 speed;   // Velocidade do projétil
     bool active;     // Indica se o projétil está ativo
 } Projectile;
 
-//Plataformas
-typedef struct Platform {
-    Vector2 position; // Coordenadas da plataforma (x, y)
-    Rectangle rect;   // Retângulo para detecção de colisão
-} Platform;
+// Le o mapa a partir de um arquivo
+void LoadMap(const char* filename, char map[MAX_HEIGHT][MAX_WIDTH], int* rows, int* cols) {
+    FILE* file = fopen(filename, "r");  // Le o arquivo
+    if (!file) {
+        perror("Failed to open file");
+        return;
+    }
 
-//Inimigos
-typedef struct Enemy {
-    Vector2 position;   // Position of the enemy (x, y)
-    Vector2 velocity;   // Speed of the enemy (x, y)
-    Rectangle rect;     // Rectangle for collision detection
-    int health;         // Health of the enemy
-} Enemy;
+    // Inicia contagem das linhas e colunas em 0
+    *rows = 0;
+    *cols = 0;
+
+    char line[MAX_WIDTH];  // buffer pra armazenar cada linha e coluna
+    while (fgets(line, sizeof(line), file)) {  // Le linha por linha
+        size_t len = strlen(line);  // Recebe o comprimento da linha atual
+        if (line[len - 1] == '\n') line[len - 1] = '\0';  // Remove o caractere de nova linha
+
+        // Copia linha pro array
+        strncpy(map[*rows], line, MAX_WIDTH);
+
+        (*rows)++;  // Incrementa contagem da linha
+        if (len > *cols) *cols = len - 1;  // Atualiza contagem da coluna se a linha atual é maior do que a anterior
+    }
+
+    fclose(file);
+}
+
+// Limpa a memória alocada pro mapa
+void FreeMap(char** map, int rows) {
+    for (int i = 0; i < rows; i++) {
+        free(map[i]);
+    }
+    free(map);
+}
+
+// Verifica colisao entre jogador e blocos
+bool CheckCollisionWithBlock(Rectangle player, Rectangle block, Vector2* correction) {
+    if (CheckCollisionRecs(player, block)) {
+        // TODO: Comentar o que fmin e fmax fazem e explicar código
+        float overlapX = fmin(player.x + player.width, block.x + block.width) - fmax(player.x, block.x);
+        float overlapY = fmin(player.y + player.height, block.y + block.height) - fmax(player.y, block.y);
+
+        // Resolve com base na menor sobreposicao
+        if (overlapX < overlapY) {
+            correction->x = (player.x < block.x) ? -overlapX : overlapX;
+        } else {
+            correction->y = (player.y < block.y) ? -overlapY : overlapY;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+// Atualiza e move os inimigos
+void UpdateEnemies(Enemy* enemies, int enemyCount, float dt) {
+    for (int i = 0; i < enemyCount; i++) {
+        // Faz o inimigo ir e voltar
+        if (enemies[i].position.x <= enemies[i].minPosition.x || enemies[i].position.x >= enemies[i].maxPosition.x) {
+            enemies[i].velocity.x = -enemies[i].velocity.x; // Reverte direção
+        }
+        enemies[i].position.x += enemies[i].velocity.x * dt;
+        enemies[i].rect.x = enemies[i].position.x;
+        enemies[i].rect.y = enemies[i].position.y;
+    }
+}
+
+// Colisao entre jogador e inimigo
+void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount) {
+    for (int i = 0; i < enemyCount; i++) {
+        if (CheckCollisionRecs(player->rect, enemies[i].rect)) {
+            player->health -= 10;
+            if (player->health <= 0) {
+                player->health = 0;
+                printf("Player has died!\n");
+            }
+        }
+    }
+}
+
+
+// Verifica colisão entre o projétil e inimigo
+void CheckProjectileEnemyCollision(Projectile* projectiles, int* enemyCount, Enemy* enemies) {
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        if (projectiles[i].active) {
+            for (int j = 0; j < *enemyCount; j++) {
+                if (enemies[j].active && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
+                    // Colisão detectada reduz a vida do inimigo
+                    enemies[j].health -= 10;  // Diminui a vida
+                    if (enemies[j].health <= 0) {
+                        enemies[j].health = 0;
+                        enemies[j].active = false; // Desativa o inimigo se a vida chegar a 0
+                    }
+                    projectiles[i].active = false;  // Desativa projetil após colisão
+                    break;
+                }
+            }
+        }
+    }
+}
+
 
 int main(void) {
-    const int screenWidth = 1200;
-    const int screenHeight = 600;
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "INF-MAN");
 
-    int numEnemies = 5;
+    // Declare the map as a static array
+    char map[MAX_HEIGHT][MAX_WIDTH];
+    int rows, cols;
 
-    InitWindow(screenWidth, screenHeight, "INF-MAN");
+    // Load the map from the file
+    LoadMap("map.txt", map, &rows, &cols);
+    if (rows == 0 || cols == 0) {  // Verifica se o carregamento do mapa deu ruim
+        CloseWindow();
+        return 1;
+    }
 
     // Inicialização do jogador
     Player player = {
-        {100, 300},
         {0, 0},
-        {100, 300, 50, 50},
+        {0, 0},
+        {0, 0, 32, 32},
         false,
-        true, // Inicia olhando para a direita
+        true,
         false,
-        3,
+        100,
         0
     };
 
-    // Variaveis das propriedades do projetil
+    // Inicialização dos inimigos
+    int enemyCount = 0;
+    Enemy enemies[MAX_WIDTH];
+
+    // Inicialização dos disparos
     float projectileWidth = 20.0f;  // Largura do disparo
     float projectileHeight = 10.0f; // Altura do disparo
+
+    // Encontrar instancias da letra "M" no arquivo e criar inimigos pra cada uma delas
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            if (map[y][x] == 'M') {
+                enemies[enemyCount].position = (Vector2){x * BLOCK_SIZE, y * BLOCK_SIZE};
+                enemies[enemyCount].velocity = (Vector2){50.0f, 0.0f}; // TODO: Criar variavel pra velocidade dos inimigos
+                enemies[enemyCount].rect = (Rectangle){enemies[enemyCount].position.x, enemies[enemyCount].position.y, BLOCK_SIZE, BLOCK_SIZE};
+                enemies[enemyCount].minPosition = enemies[enemyCount].position; // Posição minima é o ponto de spawn
+                enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + 200.0f, enemies[enemyCount].position.y}; // Posicao máxima é o destino
+                enemies[enemyCount].health = 100;
+                enemies[enemyCount].active = true; // Starting health
+                enemyCount++;
+            }
+        }
+    }
 
     // Variaveis de controle do mundo
     const float gravity = 500.0f;
@@ -67,27 +198,10 @@ int main(void) {
     const float moveSpeed = 200.0f;
     const float projectileSpeed = 600.0f;
 
-    // Inicialização das plataformas
-    Platform platforms[PLATFORM_COUNT] = {
-        {{0, 400}, {0, 400, 800, 50}},       // Chão
-        {{200, 300}, {200, 300, 100, 20}},  // Plataformas (e tbm todas abaixo)
-        {{400, 250}, {400, 250, 100, 20}},
-        {{600, 200}, {600, 200, 100, 20}},
-        {{100, 150}, {100, 150, 100, 20}}
-    };
-
-    Enemy enemies[ENEMIES_COUNT] = {
-        {{300, 300}, {100, 0}, {300, 300, 50, 50}, 100},  // Enemy type 1
-        {{600, 400}, {0, 100}, {600, 400, 50, 50}, 150},  // Enemy type 2
-        {{900, 500}, {-100, 0}, {900, 500, 50, 50}, 200}, // Enemy type 3
-        {{200, 150}, {0, 50}, {200, 150, 50, 50}, 50},    // Enemy type 4
-        {{800, 100}, {100, 100}, {800, 100, 50, 50}, 120} // Enemy type 5
-    };
-
     // Configuração da câmera
     Camera2D camera = {0};
     camera.target = (Vector2){player.position.x + player.rect.width / 2, player.position.y + player.rect.height / 2};
-    camera.offset = (Vector2){screenWidth / 2.0f, screenHeight / 2.0f};
+    camera.offset = (Vector2){SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
     camera.zoom = 1.0f;
     camera.rotation = 0.0f;
 
@@ -115,21 +229,19 @@ int main(void) {
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
-        // Aplica efeito da gravidade
+        // Gravidade
         player.velocity.y += gravity * dt;
 
-        // Controle do jogador
+        // Controles
+        player.velocity.x = 0;
         if (IsKeyDown(KEY_RIGHT)) {
             player.velocity.x = moveSpeed;
             player.facingRight = true;
-        } else if (IsKeyDown(KEY_LEFT)) {
+        }
+        if (IsKeyDown(KEY_LEFT)) {
             player.velocity.x = -moveSpeed;
             player.facingRight = false;
-        } else {
-            player.velocity.x = 0;
         }
-
-        // Pulo
         if (IsKeyPressed(KEY_SPACE) && player.isGrounded) {
             player.velocity.y = jumpForce;
             player.isGrounded = false;
@@ -151,44 +263,6 @@ int main(void) {
                 }
             }
         }
-        // Animação do jogador disparando
-        player.isShooting = IsKeyDown(KEY_Z);
-
-        // Atualiza a posição do jogador
-        player.position.x += player.velocity.x * dt;
-        player.position.y += player.velocity.y * dt;
-
-        // Atualiza o jogador pra colisão
-        player.rect.x = player.position.x;
-        player.rect.y = player.position.y;
-
-        // Colisões com plataformas
-        player.isGrounded = false;
-        for (int i = 0; i < PLATFORM_COUNT; i++) {
-            platforms[i].rect.x = platforms[i].position.x;
-            platforms[i].rect.y = platforms[i].position.y;
-
-            if (CheckCollisionRecs(player.rect, platforms[i].rect)) {
-                if (player.velocity.y > 0 && player.position.y + player.rect.height <= platforms[i].position.y + 10) {
-                    // Colisão de cima para baixo
-                    player.position.y = platforms[i].position.y - player.rect.height;
-                    player.velocity.y = 0;
-                    player.isGrounded = true;
-                } else if (player.velocity.y < 0 && player.position.y >= platforms[i].position.y + platforms[i].rect.height - 10) {
-                    // Colisão de baixo para cima
-                    player.position.y = platforms[i].position.y + platforms[i].rect.height;
-                    player.velocity.y = 0;
-                } else {
-                    // Colisão horizontal
-                    if (player.velocity.x > 0) {
-                        player.position.x = platforms[i].position.x - player.rect.width;
-                    } else if (player.velocity.x < 0) {
-                        player.position.x = platforms[i].position.x + platforms[i].rect.width;
-                    }
-                    player.velocity.x = 0;
-                }
-            }
-        }
 
         // Atualiza projéteis
         for (int i = 0; i < MAX_PROJECTILES; i++) {
@@ -197,44 +271,50 @@ int main(void) {
                 projectiles[i].rect.y += projectiles[i].speed.y * dt;
 
                 // Desativa projétil se sair da tela
-                if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > screenWidth) {
+                if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > SCREEN_WIDTH) {
                     projectiles[i].active = false;
                 }
+            }
+        }
 
-                 for (int j = 0; j < ENEMIES_COUNT; j++) {
-                    if (enemies[j].health > 0 && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
-                        // Reduce enemy health
-                        enemies[j].health -= 10;
+        // Animação do jogador disparando
+        player.isShooting = IsKeyDown(KEY_Z);
 
-                        // Deactivate projectile
-                        projectiles[i].active = false;
+        // Atualiza posição do jogador
+        player.position.x += player.velocity.x * dt;
+        player.position.y += player.velocity.y * dt;
+        player.rect.x = player.position.x;
+        player.rect.y = player.position.y;
 
-                        // Optional: Log or provide feedback for the hit
-                        printf("Hit enemy %d! Remaining health: %d\n", j, enemies[j].health);
+        // Colisao entre jogador e blocos
+        player.isGrounded = false;
+        for (int y = 0; y < rows; y++) {
+            for (int x = 0; x < cols; x++) {
+                if (map[y][x] == 'B') {
+                    Rectangle block = {x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE};
+                    Vector2 correction = {0, 0};
+                    if (CheckCollisionWithBlock(player.rect, block, &correction)) {
+                        if (correction.y != 0) { // Vertical correction
+                            player.velocity.y = 0;
+                            if (correction.y < 0) player.isGrounded = true;
+                            player.position.y += correction.y;
+                        } else if (correction.x != 0) { // Horizontal correction
+                            player.velocity.x = 0;
+                            player.position.x += correction.x;
+                        }
+                        player.rect.x = player.position.x;
+                        player.rect.y = player.position.y;
                     }
                 }
             }
         }
 
-        //Atualiza inimigos
-        for (int i = 0; i < ENEMIES_COUNT; i++) {
-            if (enemies[i].health > 0) {  // Process only active enemies
-                // Update the enemy's position based on speed
-                enemies[i].position.x += enemies[i].velocity.x * dt;
-                enemies[i].position.y += enemies[i].velocity.y * dt;
-
-                // Update the enemy's rectangle for collision detection
-                enemies[i].rect.x = enemies[i].position.x;
-                enemies[i].rect.y = enemies[i].position.y;
-            }
-        }
-
-        // Teleporta o jogador pro início quando cai pra fora do mapa
-        if (player.position.y > screenHeight) {
+        // Respawna o jogador caso caia pra fora do mapa
+        // TODO: RESPAWNAR PRA LOCALIZAÇÃO DOS 5 SEGUNDOS PRÉVIOS
+        if (player.position.y > SCREEN_HEIGHT) {
             player.position.y = 300;
-            player.position.x = 30;
-            player.velocity.y = 0;
-            player.velocity.x = 0;
+            player.position.x -= 100;
+            player.velocity = (Vector2){0, 0};
         }
 
         // Atualiza o centro da câmera
@@ -263,6 +343,16 @@ int main(void) {
         frameRec.x = frameWidth * currentFrame;
         frameRec.width = player.facingRight ? -frameWidth : frameWidth;
 
+        // Atualiza inimigos
+        UpdateEnemies(enemies, enemyCount, dt);
+
+        // Lida com projeteis batendo em inimigos
+        CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies);
+
+        // Chamada pra lidar colisões entre jogador e inimigos
+        HandlePlayerEnemyCollision(&player, enemies, enemyCount);
+
+        // Renderização
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
@@ -277,31 +367,36 @@ int main(void) {
             WHITE // Cor
         );
 
-        for (int i = 0; i < PLATFORM_COUNT; i++) {
-            DrawRectangleRec(platforms[i].rect, DARKGRAY);
-        }
-
         for (int i = 0; i < MAX_PROJECTILES; i++) {
             if (projectiles[i].active) {
                 DrawRectangleRec(projectiles[i].rect, YELLOW);
             }
         }
 
-        for (int i = 0; i < ENEMIES_COUNT; i++) {
-            if (enemies[i].health > 0) {
-                DrawRectangleRec(enemies[i].rect, DARKGRAY);
-                DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 10, 10, RED);
+        // Renderiza mapa
+        for (int y = 0; y < rows; y++) {
+            for (int x = 0; x < cols; x++) {
+                if (map[y][x] == 'B') {
+                    DrawRectangle(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, DARKGRAY);
+                }
             }
         }
 
+        // Renderiza inimigos
+        for (int i = 0; i < enemyCount; i++) {
+            if (enemies[i].active) { // Only render active enemies
+                DrawRectangle(enemies[i].position.x, enemies[i].position.y, BLOCK_SIZE, BLOCK_SIZE, RED);
+                DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 20, 10, DARKGRAY);
+            }
+        }
 
         EndMode2D();
 
-        // Exibe a saúde do jogador
         DrawText(TextFormat("Health: %d", player.health), 10, 40, 20, BLACK);
         DrawText(TextFormat("Points: %d", player.points), 10, 70, 20, BLACK);
 
         DrawText("INF-MAN", 10, 10, 20, BLACK);
+
         EndDrawing();
     }
 
