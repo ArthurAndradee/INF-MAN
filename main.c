@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <bool.h>
+#include <time.h>
 
 #define MAX_ENEMIES 1000
 #define MAX_PROJECTILES 10
@@ -110,13 +110,19 @@ void UpdateEnemies(Enemy* enemies, int enemyCount, float dt) {
 }
 
 // Colisao entre jogador e inimigo
-void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount) {
+void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount, int* currentFrame, float dt) {
     for (int i = 0; i < enemyCount; i++) {
         if (CheckCollisionRecs(player->rect, enemies[i].rect) && enemies[i].active) {
             player->health -= 1;
+            *currentFrame = 11;
+
+            player->position.y += 20;
+            player->position.x -= 200;
+            player->velocity = (Vector2){0, 0};
+
             if (player->health <= 0) {
                 player->health = 0;
-                printf("Jogador morreu\n");
+                printf("Player is dead\n");
             }
         }
     }
@@ -168,7 +174,7 @@ int InitializeEnemies(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy
                 enemies[enemyCount].rect = (Rectangle){enemies[enemyCount].position.x, enemies[enemyCount].position.y, blockSize, blockSize};
                 enemies[enemyCount].minPosition = enemies[enemyCount].position; // Minimum position is spawn point
                 enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + 200.0f, enemies[enemyCount].position.y}; // Maximum position
-                enemies[enemyCount].health = 100; // Starting health
+                enemies[enemyCount].health = 1; // Starting health
                 enemies[enemyCount].active = true; // Mark enemy as active
                 enemyCount++;
             }
@@ -201,33 +207,63 @@ void UpdatePlayerMovement(Player *player, float moveSpeed, float jumpForce) {
     }
 }
 
-void FireProjectile(Player player, Projectile projectiles[MAX_PROJECTILES], float projectileWidth, float projectileHeight, float projectileSpeed) {
+void FireProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], float projectileWidth, float projectileHeight, float projectileSpeed, float dt) {
+    static float shootTimer = 0.0f;
+
     if (IsKeyPressed(KEY_Z)) {
+        player->isShooting = true;
+
         for (int i = 0; i < MAX_PROJECTILES; i++) {
             if (!projectiles[i].active) {
                 projectiles[i].rect = (Rectangle){
-                    player.position.x + (player.facingRight ? player.rect.width : -projectileWidth),
-                    player.position.y + player.rect.height / 2 - projectileHeight / 2,
+                    player->position.x + (player->facingRight ? player->rect.width : -projectileWidth),
+                    player->position.y + player->rect.height / 2 - projectileHeight / 2,
                     projectileWidth,
                     projectileHeight
                 };
-                projectiles[i].speed = (Vector2){player.facingRight ? projectileSpeed : -projectileSpeed, 0};
+                projectiles[i].speed = (Vector2){player->facingRight ? projectileSpeed : -projectileSpeed, 0};
                 projectiles[i].active = true;
                 break;
             }
         }
     }
+
+    if (player->isShooting) {
+        shootTimer += dt;
+        if (shootTimer >= 0.5f) {
+            player->isShooting = false;
+            shootTimer = 0.0f;
+        }
+    }
 }
 
-void UpdateProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth) {
+void CheckProjectileBlockCollision(Projectile *projectile, Rectangle block) {
+    if (CheckCollisionRecs(projectile->rect, block)) {
+        // Collision detected, stop the projectile or deactivate it
+        projectile->active = false;  // Deactivate the projectile when it hits a block
+    }
+}
+
+void UpdateProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         if (projectiles[i].active) {
+            // Move the projectile
             projectiles[i].rect.x += projectiles[i].speed.x * dt;
             projectiles[i].rect.y += projectiles[i].speed.y * dt;
 
             // Deactivate projectile if it goes off-screen
             if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > screenWidth) {
                 projectiles[i].active = false;
+            }
+
+            // Check for collisions with blocks
+            for (int y = 0; y < rows; y++) {
+                for (int x = 0; x < cols; x++) {
+                    if (map[y][x] == 'B') {  // Check for block
+                        Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
+                        CheckProjectileBlockCollision(&projectiles[i], block);
+                    }
+                }
             }
         }
     }
@@ -315,7 +351,7 @@ Player InitializePlayer() {
         false,
         true,
         false,
-        100,
+        3,
         0
     };
     return player;
@@ -366,9 +402,12 @@ void UpdatePlayerAnimationState(Player *player, float *frameTimer, float frameSp
     frameRec->width = player->facingRight ? -frameWidth : frameWidth;
 }
 
-void HandleCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+void HandleCollisions(Player* player, Enemy* enemies, int enemyCount, Projectile projectiles[MAX_PROJECTILES], char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, int *currentFrame, float dt) {
     HandlePlayerBlockCollisions(player, map, rows, cols, blockSize);
+    HandlePlayerEnemyCollision(player, enemies, enemyCount, currentFrame, dt);
+    CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies);
 }
+
 
 void HandleRespawn(Player *player, float screenHeight) {
     if (player->position.y > screenHeight) {
@@ -378,28 +417,30 @@ void HandleRespawn(Player *player, float screenHeight) {
     }
 }
 
-void HandleEnemyCollisions(Player *player, Enemy enemies[MAX_WIDTH], int enemyCount) {
-    HandlePlayerEnemyCollision(player, enemies, enemyCount);
-}
-
 int main(void) {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "INF-MAN");
 
     int rows, cols;
     char map[MAX_HEIGHT][MAX_WIDTH];
     LoadMap("map.txt", map, &rows, &cols);
-    if (rows == 0 || cols == 0) { CloseWindow(); return 1; }
+    if (rows == 0 || cols == 0) {
+            CloseWindow();
+            return 1;
+    }
 
     Player player = InitializePlayer();
-    if (!FindPlayerSpawnPoint(map, rows, cols, &player)) { CloseWindow(); return 1; }
+    if (!FindPlayerSpawnPoint(map, rows, cols, &player)) {
+        CloseWindow();
+        return 1;
+    }
 
     Enemy enemies[MAX_WIDTH];
     int enemyCount = InitializeEnemiesFromMap(map, rows, cols, enemies, BLOCK_SIZE);
 
-    Camera2D camera = InitializeCamera(&player);
-
     Projectile projectiles[MAX_PROJECTILES];
     InitializeProjectileSystem(projectiles);
+
+    Camera2D camera = InitializeCamera(&player);
 
     Texture2D infmanTex;
     Rectangle frameRec;
@@ -415,27 +456,34 @@ int main(void) {
         float dt = GetFrameTime();
 
         ApplyGravity(&player, 500.0f, dt);
+
         UpdatePlayer(&player, 200.0f, -300.0f, dt);
         UpdatePlayerCamera(&camera, &player);
-        UpdatePlayerAnimationState(&player, &frameTimer, 0.10f, &currentFrame, &frameRec, frameWidth);
-        FireProjectile(player, projectiles, 20.0f, 10.0f, 600.0f);
-        UpdateProjectiles(projectiles, dt, SCREEN_WIDTH);
-        UpdateEnemies(enemies, enemyCount, dt);
-        CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies);
-        HandleCollisions(&player, map, rows, cols, BLOCK_SIZE);
+        UpdatePlayerAnimationState(&player, &frameTimer, 0.15f, &currentFrame, &frameRec, frameWidth);
+
+        HandleCollisions(&player, enemies, enemyCount, projectiles, map, rows, cols, BLOCK_SIZE, &currentFrame, dt);
         HandleRespawn(&player, SCREEN_HEIGHT);
-        HandleEnemyCollisions(&player, enemies, enemyCount);
+
+        UpdateEnemies(enemies, enemyCount, dt);
+
+        FireProjectile(&player, projectiles, 20.0f, 10.0f, 600.0f, dt);
+        UpdateProjectiles(projectiles, dt, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
         BeginMode2D(camera);
+
+        //Renderiza jogador
         DrawTexturePro(infmanTex, frameRec, player.rect, (Vector2){0, 0}, 0.0f, WHITE);
-        RenderProjectiles(projectiles);
+
         RenderMap(map, rows, cols, BLOCK_SIZE);
+        RenderProjectiles(projectiles);
         RenderEnemies(enemies, enemyCount, BLOCK_SIZE);
+
         EndMode2D();
 
+        //Painel de informações do jogador
         DrawText(TextFormat("Health: %d", player.health), 10, 40, 20, BLACK);
         DrawText(TextFormat("Points: %d", player.points), 10, 70, 20, BLACK);
 
