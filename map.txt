@@ -3,9 +3,9 @@
                                                                                                     
                                                                                                     
 B                                                                                       
-B                                                    P                                     
+B                                                                                         
 B                                                                                         
 B                           M                                                    
 B                 BBB        M                  BBBB      B   B        BBBB                    
-B        BBB      BBB         M                 BBBB      BBBBB        BBBBB   B                 
+B    P   BBB      BBB         M                 BBBB      BBBBB        BBBBB   B                 
 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB     BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
