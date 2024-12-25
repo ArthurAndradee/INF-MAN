@@ -41,6 +41,13 @@ typedef struct Projectile {
     bool active;     // Indica se o projétil está ativo
 } Projectile;
 
+typedef struct Coin {
+    Vector2 position;   // Coordenadas (x, y)
+    Rectangle rect;     // Retângulo para colisão
+    bool active;        // Se a moeda está ativa ou não
+    int points;         // Quantidade de pontos que a moeda dá
+} Coin;
+
 // Le o mapa a partir de um arquivo
 void LoadMap(const char* filename, char map[MAX_HEIGHT][MAX_WIDTH], int* rows, int* cols) {
     FILE* file = fopen(filename, "r");  // Le o arquivo
@@ -66,6 +73,11 @@ void LoadMap(const char* filename, char map[MAX_HEIGHT][MAX_WIDTH], int* rows, i
     }
 
     fclose(file);
+
+    if (*rows <= 10 || *cols <= 200) {
+        printf("Mapa menor do que 200x10");
+        exit(1);
+    }
 }
 
 // Limpa a memória alocada pro mapa
@@ -95,6 +107,43 @@ bool CheckCollisionWithBlock(Rectangle player, Rectangle block, Vector2* correct
 
     return false;
 }
+
+void CheckPlayerCoinCollision(Player* player, Coin* coins, int* coinCount) {
+    for (int i = 0; i < *coinCount; i++) {
+        if (coins[i].active && CheckCollisionRecs(player->rect, coins[i].rect)) {
+            player->points += coins[i].points;
+            coins[i].active = false;
+            printf("Points: %d\n", player->points);
+        }
+    }
+}
+
+int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin coins[MAX_WIDTH], float blockSize) {
+    int coinCount = 0;
+
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            if (map[y][x] == 'C') { // Moeda no mapa
+                coins[coinCount].position = (Vector2){x * blockSize, y * blockSize};
+                coins[coinCount].rect = (Rectangle){coins[coinCount].position.x, coins[coinCount].position.y, blockSize, blockSize};
+                coins[coinCount].active = true; // Marca a moeda como ativa
+                coins[coinCount].points = 10; // A moeda dá 10
+                coinCount++;
+            }
+        }
+    }
+
+    return coinCount;
+}
+
+void RenderCoins(Coin coins[MAX_WIDTH], int coinCount) {
+    for (int i = 0; i < coinCount; i++) {
+        if (coins[i].active) {
+            DrawRectangleRec(coins[i].rect, YELLOW);  // Draw coin as a rectangle (yellow color)
+        }
+    }
+}
+
 
 // Move os inimigos
 void UpdateEnemies(Enemy* enemies, int enemyCount, float dt) {
@@ -274,7 +323,7 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
 
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'B') {
+            if (map[y][x] == 'B') {  // Check for regular block
                 Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
                 Vector2 correction = {0, 0};
                 if (CheckCollisionWithBlock(player->rect, block, &correction)) {
@@ -288,6 +337,22 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
                     }
                     player->rect.x = player->position.x;
                     player->rect.y = player->position.y;
+                }
+            }
+
+            if (map[y][x] == 'O') {
+                Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
+                Vector2 correction = {0, 0};
+                if (CheckCollisionWithBlock(player->rect, block, &correction)) {
+                    player->health -= 1;
+
+                    if (player->health < 0) player->health = 0;
+
+                    player->position.x -= correction.x;
+                    player->position.y -= correction.y;
+                    player->rect.x = player->position.x;
+                    player->rect.y = player->position.y;
+                    printf("Player health: %d\n", player->health);
                 }
             }
         }
@@ -434,6 +499,9 @@ int main(void) {
         return 1;
     }
 
+    Coin coins[MAX_WIDTH]; // Lista de moedas
+    int coinCount = InitializeCoins(map, rows, cols, coins, BLOCK_SIZE);
+
     Enemy enemies[MAX_WIDTH];
     int enemyCount = InitializeEnemiesFromMap(map, rows, cols, enemies, BLOCK_SIZE);
 
@@ -465,6 +533,7 @@ int main(void) {
         HandleRespawn(&player, SCREEN_HEIGHT);
 
         UpdateEnemies(enemies, enemyCount, dt);
+        CheckPlayerCoinCollision(&player, coins, &coinCount);
 
         FireProjectile(&player, projectiles, 20.0f, 10.0f, 600.0f, dt);
         UpdateProjectiles(projectiles, dt, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
@@ -477,6 +546,7 @@ int main(void) {
         //Renderiza jogador
         DrawTexturePro(infmanTex, frameRec, player.rect, (Vector2){0, 0}, 0.0f, WHITE);
 
+        RenderCoins(coins, coinCount);
         RenderMap(map, rows, cols, BLOCK_SIZE);
         RenderProjectiles(projectiles);
         RenderEnemies(enemies, enemyCount, BLOCK_SIZE);
