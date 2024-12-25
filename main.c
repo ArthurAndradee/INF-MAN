@@ -219,12 +219,12 @@ int InitializeEnemies(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy
         for (int x = 0; x < cols; x++) {
             if (map[y][x] == 'M') {
                 enemies[enemyCount].position = (Vector2){x * blockSize, y * blockSize};
-                enemies[enemyCount].velocity = (Vector2){50.0f, 0.0f}; // Enemy velocity
+                enemies[enemyCount].velocity = (Vector2){50.0f, 0.0f}; // Velocidade do inimigo
                 enemies[enemyCount].rect = (Rectangle){enemies[enemyCount].position.x, enemies[enemyCount].position.y, blockSize, blockSize};
-                enemies[enemyCount].minPosition = enemies[enemyCount].position; // Minimum position is spawn point
-                enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + 200.0f, enemies[enemyCount].position.y}; // Maximum position
-                enemies[enemyCount].health = 1; // Starting health
-                enemies[enemyCount].active = true; // Mark enemy as active
+                enemies[enemyCount].minPosition = enemies[enemyCount].position; // Posicao minimia é o spawnpoint
+                enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + 200.0f, enemies[enemyCount].position.y}; // Posicao maxima
+                enemies[enemyCount].health = 1; // Vida que começa
+                enemies[enemyCount].active = true; // Inimigo é ativado
                 enemyCount++;
             }
         }
@@ -239,7 +239,7 @@ void InitializeProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
     }
 }
 
-void UpdatePlayerMovement(Player *player, float moveSpeed, float jumpForce) {
+void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     player->velocity.x = 0;
 
     if (IsKeyDown(KEY_RIGHT)) {
@@ -286,29 +286,30 @@ void FireProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], flo
     }
 }
 
+// Desativa projeteis quando batem em um bloco
 void CheckProjectileBlockCollision(Projectile *projectile, Rectangle block) {
     if (CheckCollisionRecs(projectile->rect, block)) {
-        // Collision detected, stop the projectile or deactivate it
-        projectile->active = false;  // Deactivate the projectile when it hits a block
+        projectile->active = false;
     }
 }
 
+// Move projeteis
 void UpdateProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         if (projectiles[i].active) {
-            // Move the projectile
+            // Movimento do projetil
             projectiles[i].rect.x += projectiles[i].speed.x * dt;
             projectiles[i].rect.y += projectiles[i].speed.y * dt;
 
-            // Deactivate projectile if it goes off-screen
+            // Desativa se vai pra fora da tela
             if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > screenWidth) {
                 projectiles[i].active = false;
             }
 
-            // Check for collisions with blocks
+            // Verifica colisao com blocos
             for (int y = 0; y < rows; y++) {
                 for (int x = 0; x < cols; x++) {
-                    if (map[y][x] == 'B') {  // Check for block
+                    if (map[y][x] == 'B') {  // Verifica bloco a bloco ate achar um
                         Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
                         CheckProjectileBlockCollision(&projectiles[i], block);
                     }
@@ -323,15 +324,15 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
 
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'B') {  // Check for regular block
+            if (map[y][x] == 'B') {  //  Verifica bloco a bloco ate achar um
                 Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
                 Vector2 correction = {0, 0};
                 if (CheckCollisionWithBlock(player->rect, block, &correction)) {
-                    if (correction.y != 0) { // Vertical correction
+                    if (correction.y != 0) { // Correcao vertical
                         player->velocity.y = 0;
                         if (correction.y < 0) player->isGrounded = true;
                         player->position.y += correction.y;
-                    } else if (correction.x != 0) { // Horizontal correction
+                    } else if (correction.x != 0) { // Correcao horizontal
                         player->velocity.x = 0;
                         player->position.x += correction.x;
                     }
@@ -364,16 +365,16 @@ void UpdatePlayerAnimation(Player *player, float *frameTimer, float frameSpeed, 
         *frameTimer = 0.0f;
 
         if (!player->isGrounded) {
-            *currentFrame = player->isShooting ? 10 : 5; // Jumping (shooting or not)
+            *currentFrame = player->isShooting ? 10 : 5; // Pulo
         } else if (player->velocity.x != 0) {
-            // Moving
+            // Movimento horizontal
             if (player->isShooting) {
                 *currentFrame = (*currentFrame < 6 || *currentFrame > 8) ? 7 : *currentFrame + 1;
             } else {
-                *currentFrame = (*currentFrame < 1 || *currentFrame > 3) ? 2 : *currentFrame + 1; // Cycle: 1, 2, 3
+                *currentFrame = (*currentFrame < 1 || *currentFrame > 3) ? 2 : *currentFrame + 1; // Varia entre texturas 1, 2 e 3
             }
         } else {
-            *currentFrame = player->isShooting ? 7 : 0; // Idle (shooting or not)
+            *currentFrame = player->isShooting ? 7 : 0; // parado
         }
     }
 }
@@ -448,8 +449,8 @@ void ApplyGravity(Player *player, float gravity, float dt) {
     player->velocity.y += gravity * dt;
 }
 
-void UpdatePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
-    UpdatePlayerMovement(player, moveSpeed, jumpForce);
+void MovePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
+    CheckPressedKey(player, moveSpeed, jumpForce);
     player->position.x += player->velocity.x * dt;
     player->position.y += player->velocity.y * dt;
     player->rect.x = player->position.x;
@@ -499,7 +500,7 @@ int main(void) {
         return 1;
     }
 
-    Coin coins[MAX_WIDTH]; // Lista de moedas
+    Coin coins[MAX_WIDTH];
     int coinCount = InitializeCoins(map, rows, cols, coins, BLOCK_SIZE);
 
     Enemy enemies[MAX_WIDTH];
@@ -525,7 +526,7 @@ int main(void) {
 
         ApplyGravity(&player, 500.0f, dt);
 
-        UpdatePlayer(&player, 200.0f, -300.0f, dt);
+        MovePlayer(&player, 200.0f, -300.0f, dt);
         UpdatePlayerCamera(&camera, &player);
         UpdatePlayerAnimationState(&player, &frameTimer, 0.15f, &currentFrame, &frameRec, frameWidth);
 
