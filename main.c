@@ -22,7 +22,6 @@ typedef struct Player {
     bool isShooting;
     int health;
     int points;
-
 } Player;
 
 typedef struct Enemy {
@@ -88,34 +87,131 @@ void FreeMap(char** map, int rows) {
     free(map);
 }
 
-// Verifica colisao entre jogador e blocos
-bool CheckCollisionWithBlock(Rectangle player, Rectangle block, Vector2* correction) {
-    if (CheckCollisionRecs(player, block)) {
-        // TODO: Comentar o que fmin e fmax fazem e explicar código
-        float overlapX = fmin(player.x + player.width, block.x + block.width) - fmax(player.x, block.x);
-        float overlapY = fmin(player.y + player.height, block.y + block.height) - fmax(player.y, block.y);
-
-        // Resolve com base na menor sobreposicao
-        if (overlapX < overlapY) {
-            correction->x = (player.x < block.x) ? -overlapX : overlapX;
-        } else {
-            correction->y = (player.y < block.y) ? -overlapY : overlapY;
-        }
-
-        return true;
-    }
-
-    return false;
+// Aplica calculo da gravidade
+void ApplyGravity(Player *player, float gravity, float dt) {
+    player->velocity.y += gravity * dt;
 }
 
-void CheckPlayerCoinCollision(Player* player, Coin* coins, int* coinCount) {
-    for (int i = 0; i < *coinCount; i++) {
-        if (coins[i].active && CheckCollisionRecs(player->rect, coins[i].rect)) {
-            player->points += coins[i].points;
-            coins[i].active = false;
-            printf("Points: %d\n", player->points);
+void HandleRespawn(Player *player, float screenHeight) {
+    if (player->position.y > screenHeight) {
+        player->position.y = 300;
+        player->position.x -= 100;
+        player->velocity = (Vector2){0, 0};
+    }
+}
+
+// Determina ou não se existe um spawnpoint para o jogador, caso sim, aplica as coordenadas encontradas no array x e y como ponto inicial do jogador
+bool FindPlayerSpawnPoint(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Player* player) {
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            if (map[y][x] == 'P') { // letra P no mapa encontrada
+                player->position = (Vector2){x * BLOCK_SIZE, y * BLOCK_SIZE};
+                player->rect.x = player->position.x;
+                player->rect.y = player->position.y;
+                return true; // Existe spawnpoint
+            }
         }
     }
+    return false; // Nenhuma letra P foi encontrada, nao existe spawnpoint
+}
+
+// Renderiza moedas
+void RenderCoins(Coin coins[MAX_WIDTH], int coinCount) {
+    for (int i = 0; i < coinCount; i++) {
+        if (coins[i].active) {
+            DrawRectangleRec(coins[i].rect, YELLOW);  // Draw coin as a rectangle (yellow color)
+        }
+    }
+}
+
+// Renderiza projeteis
+void RenderProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        if (projectiles[i].active) {
+            DrawRectangleRec(projectiles[i].rect, BLUE);
+        }
+    }
+}
+
+// Renderiza inimigos
+void RenderEnemies(Enemy enemies[MAX_ENEMIES], int enemyCount, float blockSize) {
+    for (int i = 0; i < enemyCount; i++) {
+        if (enemies[i].active) { // Render only active enemies
+            DrawRectangle(enemies[i].position.x, enemies[i].position.y, blockSize, blockSize, RED);
+            DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 20, 10, DARKGRAY);
+        }
+    }
+}
+
+// Renderiza mapa
+void RenderMap(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            if (map[y][x] == 'B') {
+                DrawRectangle(x * blockSize, y * blockSize, blockSize, blockSize, DARKGRAY);
+            }
+        }
+    }
+}
+
+// Inicializacao do jogador
+Player InitializePlayer() {
+    Player player = {
+        {0, 0},
+        {0, 0},
+        {0, 0, 32, 32},
+        false,
+        true,
+        false,
+        3,
+        0
+    };
+    return player;
+}
+
+// Inicializacao da camera
+Camera2D InitializeCamera(Player *player) {
+    Camera2D camera = {0};
+    camera.target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
+    camera.offset = (Vector2){SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
+    camera.zoom = 1.5f;
+    return camera;
+}
+
+// Inicializacao das texturas do jogador
+void InitializePlayerTextureAndAnimation(Texture2D *infmanTex, Rectangle *frameRec, int *frameWidth) {
+    *infmanTex = LoadTexture("player-sheet.png");
+    *frameWidth = infmanTex->width / 12;
+    *frameRec = (Rectangle){0.0f, 0.0f, (float)(*frameWidth), (float)infmanTex->height};
+}
+
+// Inicializacao dos projeteis
+void InitializeProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        projectiles[i].active = false;
+    }
+}
+
+// Encontra instancias da letra "M" no arquivo e criar inimigos pra cada uma delas
+int InitializeEnemies(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy enemies[MAX_WIDTH], float blockSize, float enemySpeedX, float enemySpeedY, float offset) {
+    int enemyCount = 0;
+
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            if (map[y][x] == 'M') {
+                enemies[enemyCount].position = (Vector2){x * blockSize, y * blockSize};
+                enemies[enemyCount].velocity = (Vector2){enemySpeedX, enemySpeedY}; // Velocidade do inimigo
+                enemies[enemyCount].rect = (Rectangle){enemies[enemyCount].position.x, enemies[enemyCount].position.y, blockSize, blockSize};
+                enemies[enemyCount].minPosition = enemies[enemyCount].position; // Posicao minimia é o spawnpoint
+                enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + offset, enemies[enemyCount].position.y}; // Posicao maxima
+                enemies[enemyCount].health = 1; // Vida que começa
+                enemies[enemyCount].active = true; // Inimigo é ativado
+                enemyCount++;
+            }
+        }
+    }
+
+    return enemyCount;
 }
 
 int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin coins[MAX_WIDTH], float blockSize) {
@@ -136,109 +232,6 @@ int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin co
     return coinCount;
 }
 
-void RenderCoins(Coin coins[MAX_WIDTH], int coinCount) {
-    for (int i = 0; i < coinCount; i++) {
-        if (coins[i].active) {
-            DrawRectangleRec(coins[i].rect, YELLOW);  // Draw coin as a rectangle (yellow color)
-        }
-    }
-}
-
-
-// Move os inimigos
-void UpdateEnemies(Enemy* enemies, int enemyCount, float dt) {
-    for (int i = 0; i < enemyCount; i++) {
-        // Faz o inimigo ir e voltar
-        if (enemies[i].position.x <= enemies[i].minPosition.x || enemies[i].position.x >= enemies[i].maxPosition.x) {
-            enemies[i].velocity.x = -enemies[i].velocity.x; // Inverte direção
-        }
-        enemies[i].position.x += enemies[i].velocity.x * dt;
-        enemies[i].rect.x = enemies[i].position.x;
-        enemies[i].rect.y = enemies[i].position.y;
-    }
-}
-
-// Colisao entre jogador e inimigo
-void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount, int* currentFrame, float dt) {
-    for (int i = 0; i < enemyCount; i++) {
-        if (CheckCollisionRecs(player->rect, enemies[i].rect) && enemies[i].active) {
-            player->health -= 1;
-            *currentFrame = 11;
-
-            player->position.y += 20;
-            player->position.x -= 200;
-            player->velocity = (Vector2){0, 0};
-
-            if (player->health <= 0) {
-                player->health = 0;
-                printf("Player is dead\n");
-            }
-        }
-    }
-}
-
-// Verifica colisão entre o projétil e inimigo
-void CheckProjectileEnemyCollision(Projectile* projectiles, int* enemyCount, Enemy* enemies) {
-    for (int i = 0; i < MAX_PROJECTILES; i++) {
-        if (projectiles[i].active) {
-            for (int j = 0; j < *enemyCount; j++) {
-                if (enemies[j].active && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
-                    // Colisão detectada reduz a vida do inimigo
-                    enemies[j].health -= 10;  // Diminui a vida
-                    if (enemies[j].health <= 0) {
-                        enemies[j].health = 0;
-                        enemies[j].active = false; // Desativa o inimigo se a vida chegar a 0
-                    }
-                    projectiles[i].active = false;  // Desativa projetil após colisão
-                    break;
-                }
-            }
-        }
-    }
-}
-
-bool FindPlayerSpawnPoint(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Player* player) {
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'P') { // letra P no mapa encontrada
-                player->position = (Vector2){x * BLOCK_SIZE, y * BLOCK_SIZE};
-                player->rect.x = player->position.x;
-                player->rect.y = player->position.y;
-                return true; // Existe spawnpoint
-            }
-        }
-    }
-    return false; // Nenhuma letra P foi encontrada, nao existe spawnpoint
-}
-
-// Encontra instancias da letra "M" no arquivo e criar inimigos pra cada uma delas
-int InitializeEnemies(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy enemies[MAX_WIDTH], float blockSize) {
-    int enemyCount = 0;
-
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'M') {
-                enemies[enemyCount].position = (Vector2){x * blockSize, y * blockSize};
-                enemies[enemyCount].velocity = (Vector2){50.0f, 0.0f}; // Velocidade do inimigo
-                enemies[enemyCount].rect = (Rectangle){enemies[enemyCount].position.x, enemies[enemyCount].position.y, blockSize, blockSize};
-                enemies[enemyCount].minPosition = enemies[enemyCount].position; // Posicao minimia é o spawnpoint
-                enemies[enemyCount].maxPosition = (Vector2){enemies[enemyCount].position.x + 200.0f, enemies[enemyCount].position.y}; // Posicao maxima
-                enemies[enemyCount].health = 1; // Vida que começa
-                enemies[enemyCount].active = true; // Inimigo é ativado
-                enemyCount++;
-            }
-        }
-    }
-
-    return enemyCount;
-}
-
-void InitializeProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
-    for (int i = 0; i < MAX_PROJECTILES; i++) {
-        projectiles[i].active = false;
-    }
-}
-
 void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     player->velocity.x = 0;
 
@@ -256,7 +249,7 @@ void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     }
 }
 
-void FireProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], float projectileWidth, float projectileHeight, float projectileSpeed, float dt) {
+void CreateProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], float projectileWidth, float projectileHeight, float projectileSpeed, float dt) {
     static float shootTimer = 0.0f;
 
     if (IsKeyPressed(KEY_Z)) {
@@ -286,6 +279,32 @@ void FireProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], flo
     }
 }
 
+
+void MoveCamera(Camera2D *camera, Player *player) {
+    camera->target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
+}
+
+void MovePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
+    CheckPressedKey(player, moveSpeed, jumpForce);
+    player->position.x += player->velocity.x * dt;
+    player->position.y += player->velocity.y * dt;
+    player->rect.x = player->position.x;
+    player->rect.y = player->position.y;
+}
+
+// Move os inimigos
+void MoveEnemies(Enemy* enemies, int enemyCount, float dt) {
+    for (int i = 0; i < enemyCount; i++) {
+        // Faz o inimigo ir e voltar
+        if (enemies[i].position.x <= enemies[i].minPosition.x || enemies[i].position.x >= enemies[i].maxPosition.x) {
+            enemies[i].velocity.x = -enemies[i].velocity.x; // Inverte direção
+        }
+        enemies[i].position.x += enemies[i].velocity.x * dt;
+        enemies[i].rect.x = enemies[i].position.x;
+        enemies[i].rect.y = enemies[i].position.y;
+    }
+}
+
 // Desativa projeteis quando batem em um bloco
 void CheckProjectileBlockCollision(Projectile *projectile, Rectangle block) {
     if (CheckCollisionRecs(projectile->rect, block)) {
@@ -293,8 +312,8 @@ void CheckProjectileBlockCollision(Projectile *projectile, Rectangle block) {
     }
 }
 
-// Move projeteis
-void UpdateProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+// Move projeteis quanndo disparados
+void MoveProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         if (projectiles[i].active) {
             // Movimento do projetil
@@ -319,6 +338,79 @@ void UpdateProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int sc
     }
 }
 
+
+// Colisao entre jogador e moeda
+void CheckPlayerCoinCollision(Player* player, Coin* coins, int* coinCount) {
+    for (int i = 0; i < *coinCount; i++) {
+        if (coins[i].active && CheckCollisionRecs(player->rect, coins[i].rect)) {
+            player->points += coins[i].points;
+            coins[i].active = false;
+            printf("Points: %d\n", player->points);
+        }
+    }
+}
+
+// Colisao entre jogador e inimigo
+void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount, int* currentFrame, float dt) {
+    for (int i = 0; i < enemyCount; i++) {
+        if (CheckCollisionRecs(player->rect, enemies[i].rect) && enemies[i].active) {
+            player->health -= 1;
+            *currentFrame = 11;
+
+            player->position.y += 20;
+            player->position.x -= 200;
+            player->velocity = (Vector2){0, 0};
+
+            if (player->health <= 0) {
+                player->health = 0;
+                printf("Player is dead\n");
+            }
+        }
+    }
+}
+
+// Verifica colisão entre o projétil e inimigo
+void CheckProjectileEnemyCollision(Projectile* projectiles, int* enemyCount, Enemy* enemies, Player* player) {
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        if (projectiles[i].active) {
+            for (int j = 0; j < *enemyCount; j++) {
+                if (enemies[j].active && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
+                    // Colisão detectada reduz a vida do inimigo
+                    enemies[j].health -= 1;  // Diminui a vida
+                    player->points += 10;
+                    if (enemies[j].health <= 0) {
+                        enemies[j].health = 0;
+                        enemies[j].active = false; // Desativa o inimigo se a vida chegar a 0
+                    }
+                    projectiles[i].active = false;  // Desativa projetil após colisão
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Verifica colisao entre jogador e blocos
+bool CheckCollisionWithBlock(Rectangle player, Rectangle block, Vector2* correction) {
+    if (CheckCollisionRecs(player, block)) {
+        // TODO: Comentar o que fmin e fmax fazem e explicar código
+        float overlapX = fmin(player.x + player.width, block.x + block.width) - fmax(player.x, block.x);
+        float overlapY = fmin(player.y + player.height, block.y + block.height) - fmax(player.y, block.y);
+
+        // Resolve com base na menor sobreposicao
+        if (overlapX < overlapY) {
+            correction->x = (player.x < block.x) ? -overlapX : overlapX;
+        } else {
+            correction->y = (player.y < block.y) ? -overlapY : overlapY;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+// Percorre o array de caracteres (mapa), cria um retangulo e usa CheckCollisionWithBlock() para determinar se o jogador está encostado. Caso sim e o bloco seja M, usa a diferença entre as duas posições, a variavel correction, é usada para manter o jogador na sua posição. Caso sim e o bloco seja O,
 void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
     player->isGrounded = false;
 
@@ -330,8 +422,11 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
                 if (CheckCollisionWithBlock(player->rect, block, &correction)) {
                     if (correction.y != 0) { // Correcao vertical
                         player->velocity.y = 0;
-                        if (correction.y < 0) player->isGrounded = true;
                         player->position.y += correction.y;
+
+                        if (correction.y < 0) {
+                            player->isGrounded = true;
+                        }
                     } else if (correction.x != 0) { // Correcao horizontal
                         player->velocity.x = 0;
                         player->position.x += correction.x;
@@ -347,7 +442,23 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
                 if (CheckCollisionWithBlock(player->rect, block, &correction)) {
                     player->health -= 1;
 
-                    if (player->health < 0) player->health = 0;
+                    if (player->health < 0) {
+                        player->health = 0;
+                    }
+
+                    //TODO: SEPARAR "O" EM FUNÇÃO EXTERNA E CRIAR FUNÇÃO PARA RENDERIZAR OBSTÁCULOS
+                    // if (correction.y != 0) { // Correcao vertical
+                    //     player->velocity.y = 0;
+                    //     player->position.y += correction.y;
+
+                    //     if (correction.y < 0) {
+                    //         player->isGrounded = true;
+                    //     }
+                    // } else if (correction.x != 0) { // Correcao horizontal
+                    //     player->velocity.x = 0;
+                    //     player->position.x += correction.x;
+                    // }
+                    // Possible useable code up
 
                     player->position.x -= correction.x;
                     player->position.y -= correction.y;
@@ -360,132 +471,60 @@ void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH]
     }
 }
 
-void UpdatePlayerAnimation(Player *player, float *frameTimer, float frameSpeed, int *currentFrame) {
-    if (*frameTimer >= frameSpeed) {
-        *frameTimer = 0.0f;
-
-        if (!player->isGrounded) {
-            *currentFrame = player->isShooting ? 10 : 5; // Pulo
-        } else if (player->velocity.x != 0) {
-            // Movimento horizontal
-            if (player->isShooting) {
-                *currentFrame = (*currentFrame < 6 || *currentFrame > 8) ? 7 : *currentFrame + 1;
-            } else {
-                *currentFrame = (*currentFrame < 1 || *currentFrame > 3) ? 2 : *currentFrame + 1; // Varia entre texturas 1, 2 e 3
-            }
-        } else {
-            *currentFrame = player->isShooting ? 7 : 0; // parado
-        }
-    }
-}
-
-// Renderiza projeteis
-void RenderProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
-    for (int i = 0; i < MAX_PROJECTILES; i++) {
-        if (projectiles[i].active) {
-            DrawRectangleRec(projectiles[i].rect, YELLOW);
-        }
-    }
-}
-
-// Renderiza mapa
-void RenderMap(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
-    for (int y = 0; y < rows; y++) {
-        for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'B') {
-                DrawRectangle(x * blockSize, y * blockSize, blockSize, blockSize, DARKGRAY);
-            }
-        }
-    }
-}
-
-// Renderiza inimigos
-void RenderEnemies(Enemy enemies[MAX_ENEMIES], int enemyCount, float blockSize) {
-    for (int i = 0; i < enemyCount; i++) {
-        if (enemies[i].active) { // Render only active enemies
-            DrawRectangle(enemies[i].position.x, enemies[i].position.y, blockSize, blockSize, RED);
-            DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 20, 10, DARKGRAY);
-        }
-    }
-}
-
-Player InitializePlayer() {
-    Player player = {
-        {0, 0},
-        {0, 0},
-        {0, 0, 32, 32},
-        false,
-        true,
-        false,
-        3,
-        0
-    };
-    return player;
-}
-
-int InitializeEnemiesFromMap(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy enemies[MAX_WIDTH], float blockSize) {
-    return InitializeEnemies(map, rows, cols, enemies, blockSize);
-}
-
-Camera2D InitializeCamera(Player *player) {
-    Camera2D camera = {0};
-    camera.target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
-    camera.offset = (Vector2){SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
-    camera.zoom = 1.5f;
-    return camera;
-}
-
-void InitializeProjectileSystem(Projectile projectiles[MAX_PROJECTILES]) {
-    InitializeProjectiles(projectiles);
-}
-
-void InitializePlayerTextureAndAnimation(Texture2D *infmanTex, Rectangle *frameRec, int *frameWidth) {
-    *infmanTex = LoadTexture("player-sheet.png");
-    *frameWidth = infmanTex->width / 12;
-    *frameRec = (Rectangle){0.0f, 0.0f, (float)(*frameWidth), (float)infmanTex->height};
-}
-
-void ApplyGravity(Player *player, float gravity, float dt) {
-    player->velocity.y += gravity * dt;
-}
-
-void MovePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
-    CheckPressedKey(player, moveSpeed, jumpForce);
-    player->position.x += player->velocity.x * dt;
-    player->position.y += player->velocity.y * dt;
-    player->rect.x = player->position.x;
-    player->rect.y = player->position.y;
-}
-
-void UpdatePlayerCamera(Camera2D *camera, Player *player) {
-    camera->target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
-}
-
-void UpdatePlayerAnimationState(Player *player, float *frameTimer, float frameSpeed, unsigned *currentFrame, Rectangle *frameRec, int frameWidth) {
-    *frameTimer += GetFrameTime();
-    UpdatePlayerAnimation(player, frameTimer, frameSpeed, currentFrame);
-    frameRec->x = frameWidth * (*currentFrame);
-    frameRec->width = player->facingRight ? -frameWidth : frameWidth;
-}
-
-void HandleCollisions(Player* player, Enemy* enemies, int enemyCount, Projectile projectiles[MAX_PROJECTILES], char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, int *currentFrame, float dt) {
+// Chama todas as funções de colisão 1 vez só
+void HandleCollisions(Player* player, Enemy* enemies, int enemyCount, Projectile projectiles[MAX_PROJECTILES], char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, int *currentFrame, float dt, Coin* coins, int* coinCount) {
     HandlePlayerBlockCollisions(player, map, rows, cols, blockSize);
     HandlePlayerEnemyCollision(player, enemies, enemyCount, currentFrame, dt);
-    CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies);
+    CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies, player);
+    CheckPlayerCoinCollision(player, coins, coinCount);
 }
 
+// Atualiza textura que apresenta o jogador conforme movimento
+void UpdatePlayerAnimation(Player *player, float *frameTimer, float frameSpeed, int *currentFrame) {
+    if (*frameTimer >= frameSpeed) { // Condicional para nao entrar em loop infinito
+        *frameTimer = 0.0f;
 
-void HandleRespawn(Player *player, float screenHeight) {
-    if (player->position.y > screenHeight) {
-        player->position.y = 300;
-        player->position.x -= 100;
-        player->velocity = (Vector2){0, 0};
+        if (!player->isGrounded) { // Jogador está no ar
+            *currentFrame = player->isShooting ? 10 : 5; // Animação de pulo
+        } else if (player->velocity.x != 0) { // Verifica se jogador está se mexendo horizontalmente (eixo x)
+            if (player->isShooting) { // Verifica se jogador está atirando, se sim:
+                *currentFrame = (*currentFrame < 6 || *currentFrame > 8) ? 7 : *currentFrame + 1; // Varia entre texturas 6, 7 e 9
+            } else { // Se não está atirando:
+                *currentFrame = (*currentFrame < 1 || *currentFrame > 3) ? 2 : *currentFrame + 1; // Varia entre texturas 1, 2 e 3
+            }
+        } else { // Jogador nao está fazendo nenhum movimento
+            *currentFrame = player->isShooting ? 7 : 0; // Animação de estar parado ou parado e atirando
+        }
     }
+}
+
+// Atualiza estado do jogador frame a frame e chama a função cada vez para trocar textura de acordo com estado
+void UpdatePlayerAnimationState(Player *player, float *frameTimer, float frameSpeed, unsigned *currentFrame, Rectangle *frameRec, int frameWidth) {
+    *frameTimer += GetFrameTime(); // Pega tempo desde o último frame
+    UpdatePlayerAnimation(player, frameTimer, frameSpeed, currentFrame); // Aplica textura ao jogador
+    frameRec->x = frameWidth * (*currentFrame);
+    frameRec->width = player->facingRight ? -frameWidth : frameWidth;
 }
 
 int main(void) {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "INF-MAN");
 
+    // Variaveis de controle de mundo
+    float gravity = 500.0;
+    float playerSpeed = 200.0;
+    float jumpForce = -300.0;
+
+    float enemySpeedX = 550.0;
+    float enemySpeedY = 50.0;
+    float enemyOffset = 200.0f;
+
+    float projectileWidth = 20.0;
+    float projectileHeight = 10.0;
+    float projectileSpeed = 400.0;
+
+    float framseSpeed = 0.15f;
+
+    // Carregamento do mapa
     int rows, cols;
     char map[MAX_HEIGHT][MAX_WIDTH];
     LoadMap("map.txt", map, &rows, &cols);
@@ -494,50 +533,49 @@ int main(void) {
             return 1;
     }
 
+    // Inicialização do jogador. Caso não haja spawnpoint no arquivo lido, encerra programa
     Player player = InitializePlayer();
     if (!FindPlayerSpawnPoint(map, rows, cols, &player)) {
         CloseWindow();
         return 1;
     }
 
-    Coin coins[MAX_WIDTH];
-    int coinCount = InitializeCoins(map, rows, cols, coins, BLOCK_SIZE);
-
-    Enemy enemies[MAX_WIDTH];
-    int enemyCount = InitializeEnemiesFromMap(map, rows, cols, enemies, BLOCK_SIZE);
-
-    Projectile projectiles[MAX_PROJECTILES];
-    InitializeProjectileSystem(projectiles);
-
-    Camera2D camera = InitializeCamera(&player);
-
+    // Inicializações:
     Texture2D infmanTex;
     Rectangle frameRec;
     int frameWidth;
     InitializePlayerTextureAndAnimation(&infmanTex, &frameRec, &frameWidth);
 
+    Camera2D camera = InitializeCamera(&player);
     float frameTimer = 0.0f;
     unsigned currentFrame = 0;
+
+    Coin coins[MAX_WIDTH];
+    int coinCount = InitializeCoins(map, rows, cols, coins, BLOCK_SIZE);
+
+    Enemy enemies[MAX_WIDTH];
+    int enemyCount = InitializeEnemies(map, rows, cols, enemies, BLOCK_SIZE, enemySpeedX, enemySpeedY, enemyOffset);
+
+    Projectile projectiles[MAX_PROJECTILES];
+    InitializeProjectiles(projectiles);
 
     SetTargetFPS(60);
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
-        ApplyGravity(&player, 500.0f, dt);
+        ApplyGravity(&player, gravity, dt);
 
-        MovePlayer(&player, 200.0f, -300.0f, dt);
-        UpdatePlayerCamera(&camera, &player);
-        UpdatePlayerAnimationState(&player, &frameTimer, 0.15f, &currentFrame, &frameRec, frameWidth);
-
-        HandleCollisions(&player, enemies, enemyCount, projectiles, map, rows, cols, BLOCK_SIZE, &currentFrame, dt);
+        UpdatePlayerAnimationState(&player, &frameTimer, framseSpeed, &currentFrame, &frameRec, frameWidth);
         HandleRespawn(&player, SCREEN_HEIGHT);
 
-        UpdateEnemies(enemies, enemyCount, dt);
-        CheckPlayerCoinCollision(&player, coins, &coinCount);
+        MovePlayer(&player, playerSpeed, jumpForce, dt);
+        MoveCamera(&camera, &player);
+        MoveEnemies(enemies, enemyCount, dt);
+        MoveProjectiles(projectiles, dt, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
 
-        FireProjectile(&player, projectiles, 20.0f, 10.0f, 600.0f, dt);
-        UpdateProjectiles(projectiles, dt, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
+        CreateProjectile(&player, projectiles, projectileWidth, projectileHeight, projectileSpeed, dt);
+        HandleCollisions(&player, enemies, enemyCount, projectiles, map, rows, cols, BLOCK_SIZE, &currentFrame, dt, coins, &coinCount);
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
@@ -547,6 +585,7 @@ int main(void) {
         //Renderiza jogador
         DrawTexturePro(infmanTex, frameRec, player.rect, (Vector2){0, 0}, 0.0f, WHITE);
 
+        //Renderização
         RenderCoins(coins, coinCount);
         RenderMap(map, rows, cols, BLOCK_SIZE);
         RenderProjectiles(projectiles);
