@@ -14,6 +14,6 @@ B
 B                                                                                         
 B                                                                                         
 B                  C                                                             
-B          C      BBB                           BBBB      B   B        BBBB                    
-B    P   BBB      BBB            M              BBBB      BBBBB        BBBBB   B                 
+B          C      OOO                           BBBB      B   B        BBBB                    
+B    P   BBB      BBB            M              BBBB      BBBBB        BBBBB   B                 														G
 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB     BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB

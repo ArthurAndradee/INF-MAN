@@ -6,12 +6,14 @@
 #include <time.h>
 
 #define MAX_ENEMIES 1000
-#define MAX_PROJECTILES 10
+#define MAX_PROJECTILES 1000
 #define BLOCK_SIZE 16
 #define MAX_WIDTH 1000
 #define MAX_HEIGHT 100
 #define SCREEN_WIDTH 1200
 #define SCREEN_HEIGHT 600
+
+#define MAX_HISTORY_SIZE 180
 
 typedef struct Player {
     Vector2 position;   // Coordenadas (x, y)
@@ -47,6 +49,11 @@ typedef struct Coin {
     int points;         // Quantidade de pontos que a moeda dá
 } Coin;
 
+typedef struct {
+    Vector2 positionHistory[MAX_HISTORY_SIZE];
+    int currentIndex;
+} PlayerHistory;
+
 // Le o mapa a partir de um arquivo
 void LoadMap(const char* filename, char map[MAX_HEIGHT][MAX_WIDTH], int* rows, int* cols) {
     FILE* file = fopen(filename, "r");  // Le o arquivo
@@ -79,25 +86,9 @@ void LoadMap(const char* filename, char map[MAX_HEIGHT][MAX_WIDTH], int* rows, i
     }
 }
 
-// Limpa a memória alocada pro mapa
-void FreeMap(char** map, int rows) {
-    for (int i = 0; i < rows; i++) {
-        free(map[i]);
-    }
-    free(map);
-}
-
 // Aplica calculo da gravidade
 void ApplyGravity(Player *player, float gravity, float dt) {
     player->velocity.y += gravity * dt;
-}
-
-void HandleRespawn(Player *player, float screenHeight) {
-    if (player->position.y > screenHeight) {
-        player->position.y = 300;
-        player->position.x -= 100;
-        player->velocity = (Vector2){0, 0};
-    }
 }
 
 // Determina ou não se existe um spawnpoint para o jogador, caso sim, aplica as coordenadas encontradas no array x e y como ponto inicial do jogador
@@ -134,25 +125,41 @@ void RenderProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
 }
 
 // Renderiza inimigos
-void RenderEnemies(Enemy enemies[MAX_ENEMIES], int enemyCount, float blockSize) {
+void RenderEnemies(Enemy enemies[MAX_ENEMIES], int enemyCount, float blockSize, Texture2D enemyTexture) {
     for (int i = 0; i < enemyCount; i++) {
-        if (enemies[i].active) { // Render only active enemies
-            DrawRectangle(enemies[i].position.x, enemies[i].position.y, blockSize, blockSize, RED);
+        if (enemies[i].active) {
+            Rectangle destRect = {enemies[i].position.x, enemies[i].position.y, 21, 16};
+            DrawTexturePro(enemyTexture,
+                           (Rectangle){0, 0, enemyTexture.width, enemyTexture.height},
+                           destRect,
+                           (Vector2){0, 0},
+                           0.0f,
+                           WHITE);
             DrawText(TextFormat("HP: %d", enemies[i].health), enemies[i].position.x, enemies[i].position.y - 20, 10, DARKGRAY);
         }
     }
 }
 
+
 // Renderiza mapa
-void RenderMap(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+void RenderMap(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, Texture2D blockTexture, Texture2D obstacleTexture, Texture2D gateTexture) {
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
             if (map[y][x] == 'B') {
-                DrawRectangle(x * blockSize, y * blockSize, blockSize, blockSize, DARKGRAY);
+                Rectangle destRect = {x * blockSize, y * blockSize, blockSize, blockSize};
+                DrawTexturePro(blockTexture, (Rectangle){0, 0, blockTexture.width, blockTexture.height}, destRect, (Vector2){0, 0}, 0.0f, WHITE);
+            }
+            else if (map[y][x] == 'O') {
+                Rectangle destRect = {x * blockSize, y * blockSize, blockSize, blockSize};
+                DrawTexturePro(obstacleTexture, (Rectangle){0, 0, obstacleTexture.width, obstacleTexture.height}, destRect, (Vector2){0, 0}, 0.0f, WHITE);
+            } else if (map[y][x] == 'G') {
+                Rectangle destRect = {x * blockSize, y * blockSize - 16, blockSize * 2, blockSize * 2};
+                DrawTexturePro(gateTexture, (Rectangle){0, 0, gateTexture.width, gateTexture.height}, destRect, (Vector2){0, 0}, 0.0f, WHITE);
             }
         }
     }
 }
+
 
 // Inicializacao do jogador
 Player InitializePlayer() {
@@ -169,12 +176,19 @@ Player InitializePlayer() {
     return player;
 }
 
+void InitPlayerHistory(PlayerHistory *history) {
+    history->currentIndex = 0;
+    for (int i = 0; i < MAX_HISTORY_SIZE; i++) {
+        history->positionHistory[i] = (Vector2){0, 0};
+    }
+}
+
 // Inicializacao da camera
 Camera2D InitializeCamera(Player *player) {
     Camera2D camera = {0};
     camera.target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
     camera.offset = (Vector2){SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
-    camera.zoom = 1.5f;
+    camera.zoom = 2.0f;
     return camera;
 }
 
@@ -233,6 +247,28 @@ int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin co
     return coinCount;
 }
 
+// Recebe posição atual do jogador e atualiza ela, substituindo a antiga
+void UpdatePlayerHistory(PlayerHistory *history, Vector2 currentPosition) {
+    history->positionHistory[history->currentIndex] = currentPosition;
+    history->currentIndex = (history->currentIndex + 1) % MAX_HISTORY_SIZE;
+}
+
+// Retorna posição de 3 segundos atrás em um formato vetor2
+Vector2 GetPositionFrom3SecondsAgo(PlayerHistory *history) {
+    int targetIndex = history->currentIndex - 180;  // 3 segundos = 180 frames
+    if (targetIndex < 0) {
+        targetIndex += MAX_HISTORY_SIZE;
+    }
+    return history->positionHistory[targetIndex];
+}
+
+void HandleRespawn(Player *player, float screenHeight, PlayerHistory *history) {
+    if (player->position.y > screenHeight) {
+        player->position = GetPositionFrom3SecondsAgo(history);
+        player->velocity = (Vector2){0, 0};
+    }
+}
+
 // Aplica movimento para o jogador conforme a tecla pressionada
 void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     player->velocity.x = 0;
@@ -285,7 +321,7 @@ void CreateProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], f
 
 // Move camera de acordo com posição do jogador
 void MoveCamera(Camera2D *camera, Player *player) {
-    camera->target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
+    camera->target = (Vector2){player->position.x + player->rect.width / 2, SCREEN_HEIGHT / 2 - 110};
 }
 
 // Move jogador com base na velocidade multiplicada pelo frame atual
@@ -318,7 +354,7 @@ void CheckProjectileBlockCollision(Projectile *projectile, Rectangle block) {
 }
 
 // Move projeteis quanndo disparados
-void MoveProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+void MoveProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, Player* player, int screenWidth, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         if (projectiles[i].active) {
             // Movimento do projetil
@@ -326,7 +362,11 @@ void MoveProjectiles(Projectile projectiles[MAX_PROJECTILES], float dt, int scre
             projectiles[i].rect.y += projectiles[i].speed.y * dt;
 
             // Desativa se vai pra fora da tela
-            if (projectiles[i].rect.x < -600 || projectiles[i].rect.x > screenWidth) {
+             if (projectiles[i].rect.x < player->position.x - screenWidth ||
+                 projectiles[i].rect.x > player->position.x + screenWidth ||
+                 projectiles[i].rect.y < player->position.y - screenWidth ||
+                 projectiles[i].rect.y > player->position.y + screenWidth)
+            {
                 projectiles[i].active = false;
             }
 
@@ -356,15 +396,17 @@ void CheckPlayerCoinCollision(Player* player, Coin* coins, int* coinCount) {
 }
 
 // Colisao entre jogador e inimigo
-void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount, int* currentFrame, float dt) {
+void HandlePlayerEnemyCollision(Player* player, Enemy* enemies, int enemyCount, int* currentFrame, float dt, PlayerHistory* history) {
     for (int i = 0; i < enemyCount; i++) {
         if (CheckCollisionRecs(player->rect, enemies[i].rect) && enemies[i].active) {
             player->health -= 1;
             *currentFrame = 11;
 
-            player->position.y += 20;
-            player->position.x -= 200;
+            player->position = GetPositionFrom3SecondsAgo(history);
             player->velocity = (Vector2){0, 0};
+
+            player->rect.x = player->position.x;
+            player->rect.y = player->position.y;
 
             if (player->health <= 0) {
                 player->health = 0;
@@ -382,7 +424,7 @@ void CheckProjectileEnemyCollision(Projectile* projectiles, int* enemyCount, Ene
                 if (enemies[j].active && CheckCollisionRecs(projectiles[i].rect, enemies[j].rect)) {
                     // Colisão detectada reduz a vida do inimigo
                     enemies[j].health -= 1;  // Diminui a vida
-                    player->points += 10;
+                    player->points += 100;
                     if (enemies[j].health <= 0) {
                         enemies[j].health = 0;
                         enemies[j].active = false; // Desativa o inimigo se a vida chegar a 0
@@ -415,71 +457,79 @@ bool CheckCollisionWithBlock(Rectangle player, Rectangle block, Vector2* correct
     return false;
 }
 
-// Percorre o array de caracteres (mapa), cria um retangulo e usa CheckCollisionWithBlock() para determinar se o jogador está encostado. Caso sim e o bloco seja M, usa a diferença entre as duas posições, a variavel correction, é usada para manter o jogador na sua posição. Caso sim e o bloco seja O,
-void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize) {
+// Caso haja colisão entre jogador e o bloco, e bloco seja M, usa a diferença entre as duas posições, a variavel correction, é usada para manter o jogador na sua posição.
+void HandleBlockCollision(Player *player, Rectangle block) {
+    Vector2 correction = {0, 0};
+    if (CheckCollisionWithBlock(player->rect, block, &correction)) {
+        if (correction.y != 0) { // Correção vertical
+            player->velocity.y = 0;
+            player->position.y += correction.y;
+
+            if (correction.y < 0) {
+                player->isGrounded = true;
+            }
+        } else if (correction.x != 0) { // Correção horizontal
+            player->velocity.x = 0;
+            player->position.x += correction.x;
+        }
+
+        player->rect.x = player->position.x;
+        player->rect.y = player->position.y;
+    }
+}
+// Caso haja colisão entre jogador e o bloco, e bloco seja O, empurra o jogador para trás de subtrai 1 de sua vida.
+void HandleObstacleCollision(Player *player, Rectangle block, PlayerHistory *history) {
+    Vector2 correction = {0, 0};
+    if (CheckCollisionWithBlock(player->rect, block, &correction)) {
+        player->health -= 1;
+        if (player->health < 0) {
+            player->health = 0;
+        }
+
+        // Reset player to position from 3 seconds ago
+        player->position = GetPositionFrom3SecondsAgo(history);
+        player->velocity = (Vector2){0, 0};
+
+        // Update player's rect position
+        player->rect.x = player->position.x;
+        player->rect.y = player->position.y;
+
+        printf("Player health: %d\n", player->health);
+    }
+}
+
+// Caso haja colisão entre o jogador e o portão, fecha o jogo logando a pontuação total to jogador
+void HandleGateCollision(Player *player, Rectangle block) {
+    Vector2 correction = {0, 0};
+    if (CheckCollisionWithBlock(player->rect, block, &correction)) {
+        printf("Player's total points: %d\n", player->points);
+        exit(1);
+    }
+}
+
+// Percorre o array de caracteres (mapa), cria um retangulo e usa CheckCollisionWithBlock() para determinar se o jogador está colidindo com algum bloco.
+void HandlePlayerBlockCollisions(Player *player, char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, PlayerHistory *history) {
     player->isGrounded = false;
 
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
-            if (map[y][x] == 'B') {  //  Verifica bloco a bloco ate achar um
-                Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
-                Vector2 correction = {0, 0};
-                if (CheckCollisionWithBlock(player->rect, block, &correction)) {
-                    if (correction.y != 0) { // Correcao vertical
-                        player->velocity.y = 0;
-                        player->position.y += correction.y;
+            Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
 
-                        if (correction.y < 0) {
-                            player->isGrounded = true;
-                        }
-                    } else if (correction.x != 0) { // Correcao horizontal
-                        player->velocity.x = 0;
-                        player->position.x += correction.x;
-                    }
-                    player->rect.x = player->position.x;
-                    player->rect.y = player->position.y;
-                }
-            }
-
-            if (map[y][x] == 'O') {
-                Rectangle block = {x * blockSize, y * blockSize, blockSize, blockSize};
-                Vector2 correction = {0, 0};
-                if (CheckCollisionWithBlock(player->rect, block, &correction)) {
-                    player->health -= 1;
-
-                    if (player->health < 0) {
-                        player->health = 0;
-                    }
-
-                    //TODO: SEPARAR "O" EM FUNÇÃO EXTERNA E CRIAR FUNÇÃO PARA RENDERIZAR OBSTÁCULOS
-                    // if (correction.y != 0) { // Correcao vertical
-                    //     player->velocity.y = 0;
-                    //     player->position.y += correction.y;
-
-                    //     if (correction.y < 0) {
-                    //         player->isGrounded = true;
-                    //     }
-                    // } else if (correction.x != 0) { // Correcao horizontal
-                    //     player->velocity.x = 0;
-                    //     player->position.x += correction.x;
-                    // }
-                    // Possible useable code up
-
-                    player->position.x -= correction.x;
-                    player->position.y -= correction.y;
-                    player->rect.x = player->position.x;
-                    player->rect.y = player->position.y;
-                    printf("Player health: %d\n", player->health);
-                }
+            if (map[y][x] == 'B') {
+                HandleBlockCollision(player, block);
+            } else if (map[y][x] == 'O') {
+                HandleObstacleCollision(player, block, history);
+            } else if (map[y][x] == 'G') {
+                HandleGateCollision(player, block);
             }
         }
     }
 }
 
 // Chama todas as funções de colisão 1 vez só
-void HandleCollisions(Player* player, Enemy* enemies, int enemyCount, Projectile projectiles[MAX_PROJECTILES], char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, int *currentFrame, float dt, Coin* coins, int* coinCount) {
-    HandlePlayerBlockCollisions(player, map, rows, cols, blockSize);
-    HandlePlayerEnemyCollision(player, enemies, enemyCount, currentFrame, dt);
+void HandleCollisions(Player* player, Enemy* enemies, int enemyCount, Projectile projectiles[MAX_PROJECTILES], char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, float blockSize, int *currentFrame, float dt, Coin* coins, int* coinCount, PlayerHistory *history) {
+    HandlePlayerBlockCollisions(player, map, rows, cols, blockSize, history);
+    HandlePlayerEnemyCollision(player, enemies, enemyCount, currentFrame, dt, history);
     CheckProjectileEnemyCollision(projectiles, &enemyCount, enemies, player);
     CheckPlayerCoinCollision(player, coins, coinCount);
 }
@@ -511,6 +561,13 @@ void UpdatePlayerAnimationState(Player *player, float *frameTimer, float frameSp
     frameRec->width = player->facingRight ? -frameWidth : frameWidth;
 }
 
+// Verifica vida do jogador e, se 0 ou abaixo, encerra o jogo
+void CheckPlayerHealth(Player *player) {
+    if (player->health <= 0) {
+        exit(1);
+    }
+}
+
 int main(void) {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "INF-MAN");
 
@@ -519,7 +576,7 @@ int main(void) {
     float playerSpeed = 200.0;
     float jumpForce = -300.0;
 
-    float enemySpeedX = 550.0;
+    float enemySpeedX = 150.0;
     float enemySpeedY = 50.0;
     float enemyOffset = 200.0f;
 
@@ -527,7 +584,7 @@ int main(void) {
     float projectileHeight = 10.0;
     float projectileSpeed = 400.0;
 
-    float framseSpeed = 0.15f;
+    float frameSpeed = 0.15f;
 
     // Carregamento do mapa
     int rows, cols;
@@ -546,6 +603,13 @@ int main(void) {
     }
 
     // Inicializações:
+    Texture2D background = LoadTexture("background.png");
+    Texture2D blockTexture = LoadTexture("tile1.png");
+    Texture2D obstacleTexture = LoadTexture("spike.png");
+    Texture2D gateTexture = LoadTexture("gate.png");
+    Texture2D enemiesTexture = LoadTexture("enemies.png");
+    Texture2D heartTexture = LoadTexture("heart.png");
+
     Texture2D infmanTex;
     Rectangle frameRec;
     int frameWidth;
@@ -554,6 +618,9 @@ int main(void) {
     Camera2D camera = InitializeCamera(&player);
     float frameTimer = 0.0f;
     unsigned currentFrame = 0;
+
+    PlayerHistory history;
+    InitPlayerHistory(&history);
 
     Coin coins[MAX_WIDTH];
     int coinCount = InitializeCoins(map, rows, cols, coins, BLOCK_SIZE);
@@ -571,36 +638,63 @@ int main(void) {
 
         ApplyGravity(&player, gravity, dt);
 
-        UpdatePlayerAnimationState(&player, &frameTimer, framseSpeed, &currentFrame, &frameRec, frameWidth);
-        HandleRespawn(&player, SCREEN_HEIGHT);
+        CheckPlayerHealth(&player);
+        UpdatePlayerHistory(&history, player.position);
+        UpdatePlayerAnimationState(&player, &frameTimer, frameSpeed, &currentFrame, &frameRec, frameWidth);
+        HandleRespawn(&player, SCREEN_HEIGHT, &history);
 
         MovePlayer(&player, playerSpeed, jumpForce, dt);
         MoveCamera(&camera, &player);
         MoveEnemies(enemies, enemyCount, dt);
-        MoveProjectiles(projectiles, dt, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
+        MoveProjectiles(projectiles, dt, &player, SCREEN_WIDTH, map, rows, cols, BLOCK_SIZE);
 
         CreateProjectile(&player, projectiles, projectileWidth, projectileHeight, projectileSpeed, dt);
-        HandleCollisions(&player, enemies, enemyCount, projectiles, map, rows, cols, BLOCK_SIZE, &currentFrame, dt, coins, &coinCount);
+        HandleCollisions(&player, enemies, enemyCount, projectiles, map, rows, cols, BLOCK_SIZE, &currentFrame, dt, coins, &coinCount, &history);
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
         BeginMode2D(camera);
 
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                DrawTexture(background, i * background.width, 0, WHITE);
+            }
+        }
+
         //Renderiza jogador
         DrawTexturePro(infmanTex, frameRec, player.rect, (Vector2){0, 0}, 0.0f, WHITE);
 
         //Renderização
         RenderCoins(coins, coinCount);
-        RenderMap(map, rows, cols, BLOCK_SIZE);
+        RenderMap(map, rows, cols, BLOCK_SIZE, blockTexture, obstacleTexture, gateTexture);
         RenderProjectiles(projectiles);
-        RenderEnemies(enemies, enemyCount, BLOCK_SIZE);
+        RenderEnemies(enemies, enemyCount, BLOCK_SIZE, enemiesTexture);
 
         EndMode2D();
 
-        //Painel de informações do jogador
-        DrawText(TextFormat("Health: %d", player.health), 10, 40, 20, BLACK);
-        DrawText(TextFormat("Points: %d", player.points), 10, 70, 20, BLACK);
+        int heartX = 85;
+        int heartY = 37;
+        float heartWidth = 30.0f;
+        float heartHeight = 30.0f;
+        for (int i = 0; i < player.health; i++) {
+            Rectangle destRect = { heartX + i * (heartWidth + 5), heartY, heartWidth, heartHeight };
+            DrawTexturePro(heartTexture, (Rectangle){0, 0, heartTexture.width, heartTexture.height}, destRect, (Vector2){0, 0}, 0.0f, WHITE);
+        }
+
+        int textX = 10;
+        int textY = 40;
+        int textHeight = 20;
+        int textWidth = MeasureText(TextFormat("Health:"), textHeight);
+        DrawRectangle(textX - 5, textY - 5, textWidth + 10, textHeight + 10, BLACK);
+        DrawText(TextFormat("Health:"), textX, textY, 20, WHITE);
+
+        int pointsX = 10;
+        int pointsY = 70;
+        int pointsHeight = 20;
+        int pointsWidth = MeasureText(TextFormat("Points: %d", player.points), textHeight);
+        DrawRectangle(pointsX - 5, pointsY - 5, pointsWidth + 10, pointsHeight + 10, BLACK);
+        DrawText(TextFormat("Points: %d", player.points), 10, 70, textHeight, WHITE);
 
         EndDrawing();
     }
