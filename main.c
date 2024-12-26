@@ -19,9 +19,9 @@ typedef struct Player {
     Rectangle rect;     // Retangulo pra colisao
     bool isGrounded;    // Determina se está no chao
     bool facingRight;   // Determina direcao que está encarando
-    bool isShooting;
-    int health;
-    int points;
+    bool isShooting;    // Determina se está atirando ou nao
+    int health;         // Pontos de vida
+    int points;         // Pontos para o placar
 } Player;
 
 typedef struct Enemy {
@@ -31,7 +31,7 @@ typedef struct Enemy {
     Vector2 minPosition; // posicao minima (x, y)
     Vector2 maxPosition; // posicao maxima (x, y)
     int health;         // pontos de vida
-    bool active;        // flag para determinar se o inimigo está ativo
+    bool active;        // determina se o inimigo está ativo
 } Enemy;
 
 typedef struct Projectile {
@@ -214,6 +214,7 @@ int InitializeEnemies(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Enemy
     return enemyCount;
 }
 
+// Inicializa as moedas no mapa
 int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin coins[MAX_WIDTH], float blockSize) {
     int coinCount = 0;
 
@@ -232,6 +233,7 @@ int InitializeCoins(char map[MAX_HEIGHT][MAX_WIDTH], int rows, int cols, Coin co
     return coinCount;
 }
 
+// Aplica movimento para o jogador conforme a tecla pressionada
 void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     player->velocity.x = 0;
 
@@ -249,8 +251,10 @@ void CheckPressedKey(Player *player, float moveSpeed, float jumpForce) {
     }
 }
 
+// Cria projetil com coordenadas baseadas na posição atual do jogador e aplica estado do jogador estar atirando durante 0.5 segundos
 void CreateProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], float projectileWidth, float projectileHeight, float projectileSpeed, float dt) {
     static float shootTimer = 0.0f;
+    float animationDuration = 0.5;
 
     if (IsKeyPressed(KEY_Z)) {
         player->isShooting = true;
@@ -272,18 +276,19 @@ void CreateProjectile(Player *player, Projectile projectiles[MAX_PROJECTILES], f
 
     if (player->isShooting) {
         shootTimer += dt;
-        if (shootTimer >= 0.5f) {
+        if (shootTimer >= animationDuration) {
             player->isShooting = false;
             shootTimer = 0.0f;
         }
     }
 }
 
-
+// Move camera de acordo com posição do jogador
 void MoveCamera(Camera2D *camera, Player *player) {
     camera->target = (Vector2){player->position.x + player->rect.width / 2, player->position.y + player->rect.height / 2};
 }
 
+// Move jogador com base na velocidade multiplicada pelo frame atual
 void MovePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
     CheckPressedKey(player, moveSpeed, jumpForce);
     player->position.x += player->velocity.x * dt;
@@ -292,7 +297,7 @@ void MovePlayer(Player *player, float moveSpeed, float jumpForce, float dt) {
     player->rect.y = player->position.y;
 }
 
-// Move os inimigos
+// Move os inimigos com base na velocidade multiplicada pelo frame atual
 void MoveEnemies(Enemy* enemies, int enemyCount, float dt) {
     for (int i = 0; i < enemyCount; i++) {
         // Faz o inimigo ir e voltar
