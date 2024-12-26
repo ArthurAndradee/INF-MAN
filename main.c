@@ -119,7 +119,7 @@ void RenderCoins(Coin coins[MAX_WIDTH], int coinCount) {
 void RenderProjectiles(Projectile projectiles[MAX_PROJECTILES]) {
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         if (projectiles[i].active) {
-            DrawRectangleRec(projectiles[i].rect, BLUE);
+            DrawRectangleRec(projectiles[i].rect, YELLOW);
         }
     }
 }
@@ -266,6 +266,7 @@ void HandleRespawn(Player *player, float screenHeight, PlayerHistory *history) {
     if (player->position.y > screenHeight) {
         player->position = GetPositionFrom3SecondsAgo(history);
         player->velocity = (Vector2){0, 0};
+        player->health -= 1;
     }
 }
 
